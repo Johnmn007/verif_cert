@@ -2694,13 +2694,19 @@ function AdminAccessView({ onUnlock }) {
     event.preventDefault();
     setBusy(true);
     setMessage("");
-    localStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, token.trim());
+    const cleaned = token.trim();
+    localStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, cleaned);
     try {
       await apiRequest("/admin/summary");
       onUnlock();
-    } catch {
+    } catch (err) {
       localStorage.removeItem(ADMIN_TOKEN_STORAGE_KEY);
-      setMessage("Clave administrativa no valida.");
+      const errStr = String(err?.message || err);
+      if (errStr.includes("Failed to fetch") || errStr.includes("NetworkError") || errStr.includes("Load failed")) {
+        setMessage("No se pudo conectar con el servidor backend (API no disponible). Verifica la conexión.");
+      } else {
+        setMessage("Clave administrativa no válida. En entorno local la clave es: sicv-admin-local");
+      }
     } finally {
       setBusy(false);
     }
@@ -2716,12 +2722,12 @@ function AdminAccessView({ onUnlock }) {
           <div>
             <h1 className="text-lg font-semibold text-ink">Acceso administrativo</h1>
             <p className="mt-1 text-sm text-slate-600">
-              Solo administradores pueden ver QR, documentos internos o modificar certificados.
+              Solo administradores pueden ver QR, emitir certificados o modificar políticas.
             </p>
           </div>
         </div>
         <label className="mt-5 block text-xs font-semibold uppercase text-slate-500" htmlFor="admin-token">
-          Clave admin local
+          Clave o Token de Administrador
         </label>
         <input
           id="admin-token"
@@ -2732,14 +2738,27 @@ function AdminAccessView({ onUnlock }) {
           placeholder="Ingresa la clave administrativa"
           required
         />
+        <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
+          <span>¿Entorno local?</span>
+          <button
+            type="button"
+            className="font-medium text-civic hover:underline"
+            onClick={() => setToken("sicv-admin-local")}
+          >
+            Usar clave demo (sicv-admin-local)
+          </button>
+        </div>
         <button className="primary-button mt-4 w-full" disabled={busy || !token.trim()} type="submit">
           <ShieldCheck className="h-4 w-4" />
           Entrar
         </button>
         {message && <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{message}</p>}
-        <p className="mt-4 text-xs text-slate-500">
-          En Docker local la clave por defecto es configurable con `ADMIN_API_TOKEN`.
-        </p>
+        <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-relaxed text-slate-600 space-y-1">
+          <p className="font-semibold text-ink">Autenticación por Token:</p>
+          <p>• La base de datos no requiere cuentas de usuario; se autentica mediante un token seguro.</p>
+          <p>• <strong>Local:</strong> la clave por defecto es <code className="rounded bg-slate-200 px-1 py-0.5 text-slate-800">sicv-admin-local</code>.</p>
+          <p>• <strong>Producción / Railway:</strong> la clave es la variable de entorno <code className="rounded bg-slate-200 px-1 py-0.5 text-slate-800">ADMIN_API_TOKEN</code> configurada en el backend.</p>
+        </div>
       </form>
     </div>
   );
