@@ -18,13 +18,21 @@ from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
 
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://sicv:sicv_dev_password@localhost:5432/sicv")
+_raw_database_url = os.getenv("DATABASE_URL", "postgresql://sicv:sicv_dev_password@localhost:5432/sicv")
+if _raw_database_url.startswith("postgres://"):
+    _raw_database_url = _raw_database_url.replace("postgres://", "postgresql://", 1)
+DATABASE_URL = _raw_database_url
+
 ADMIN_API_TOKEN = os.getenv("ADMIN_API_TOKEN", "sicv-admin-local")
-CORS_ORIGINS = [
-    origin.strip()
-    for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
-    if origin.strip()
-]
+
+_cors_env = os.getenv(
+    "CORS_ORIGINS",
+    "http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,http://127.0.0.1:5174",
+)
+if _cors_env.strip() == "*":
+    CORS_ORIGINS = ["*"]
+else:
+    CORS_ORIGINS = [origin.strip() for origin in _cors_env.split(",") if origin.strip()]
 
 app = FastAPI(
     title="SICV API",
@@ -35,10 +43,21 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
+    allow_origin_regex=r"https?://.*\.railway\.app" if CORS_ORIGINS != ["*"] else None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok", "service": "sicv-backend"}
+
+
+@app.get("/")
+def root_check():
+    return {"status": "ok", "message": "SICV API activa", "version": "0.1.0"}
 
 
 DEFAULT_INSTITUTION_ID = "11111111-1111-1111-1111-111111111111"
@@ -100,6 +119,8 @@ class InstitutionSettingsUpdate(BaseModel):
 
 @app.on_event("startup")
 def ensure_runtime_schema() -> None:
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    QR_DIR.mkdir(parents=True, exist_ok=True)
     with db_cursor() as cur:
         cur.execute("create extension if not exists pgcrypto;")
 
