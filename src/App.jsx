@@ -637,10 +637,10 @@ function PublicShell({ children }) {
               <p className="truncate text-xs text-slate-500">Verificacion publica de certificados</p>
             </div>
           </div>
-          <a className="secondary-button shrink-0 px-3.5 shadow-xs hover:border-civic hover:text-civic transition" href="/admin">
-            <LockKeyhole className="h-4 w-4" />
-            <span className="hidden sm:inline">Admin</span>
-          </a>
+          <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50/80 px-3 py-1 text-xs font-medium text-slate-600">
+            <span className="h-2 w-2 rounded-full bg-emerald-500"></span>
+            <span>Portal Oficial</span>
+          </div>
         </div>
       </header>
 
