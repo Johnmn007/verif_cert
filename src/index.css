@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color: #0f172a;
+  background: #f8fafc;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  background-color: #f8fafc;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid rgba(27, 54, 93, 0.35);
+  outline-offset: 2px;
+}
+
+@layer components {
+  .panel {
+    @apply rounded-xl border border-slate-200/90 bg-white shadow-sm;
+  }
+
+  .icon-button {
+    @apply inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 transition hover:border-civic hover:text-civic active:scale-95;
+  }
+
+  .primary-button {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-civic px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#10233f] active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-slate-300 disabled:opacity-75;
+  }
+
+  .secondary-button {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-civic hover:text-civic active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .field {
+    @apply min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3.5 text-sm text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-civic focus:ring-1 focus:ring-civic;
+  }
+}
