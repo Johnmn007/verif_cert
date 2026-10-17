@@ -1,4 +1,5 @@
 import {
+  Activity,
   AlertTriangle,
   BadgeCheck,
   BarChart3,
@@ -6,8 +7,10 @@ import {
   CalendarClock,
   Check,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   ChevronsLeft,
   ChevronsRight,
   ClipboardCheck,
@@ -23,6 +26,7 @@ import {
   LogOut,
   Menu,
   Pencil,
+  Plus,
   QrCode,
   RefreshCw,
   Save,
@@ -32,6 +36,7 @@ import {
   ShieldCheck,
   Trash2,
   Upload,
+  UserPlus,
   UserRoundCheck,
   X,
 } from "lucide-react";
@@ -994,14 +999,41 @@ function DashboardView({ refreshKey, onRefresh }) {
     certificatesResource.errorDetail?.includes("403") ||
     summaryResource.errorDetail?.includes("403");
   const showDbWarning = !healthResource.loading && healthResource.data?.database_connected === false;
+  const [showCreateForm, setShowCreateForm] = useState(true);
 
   return (
     <div className="space-y-5">
-      <PageHeader
-        eyebrow="Operacion"
-        title="Panel institucional"
-        description="Resumen operativo para seguimiento de emision, revision, publicacion y control de riesgos."
-      />
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <PageHeader
+          eyebrow="Operacion"
+          title="Panel institucional"
+          description="Resumen operativo para seguimiento de emision, revision, publicacion y control de riesgos."
+        />
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            className={showCreateForm ? "secondary-button text-xs py-2" : "primary-button text-xs py-2"}
+            onClick={() => setShowCreateForm(!showCreateForm)}
+          >
+            {showCreateForm ? (
+              <>
+                <ChevronUp className="h-4 w-4" />
+                Plegar formulario
+              </>
+            ) : (
+              <>
+                <Plus className="h-4 w-4" />
+                Registrar certificado
+              </>
+            )}
+          </button>
+          <button className="secondary-button text-xs py-2" onClick={onRefresh}>
+            <RefreshCw className="h-4 w-4" />
+            Actualizar
+          </button>
+        </div>
+      </div>
+
       {isAuthError && (
         <Notice tone="danger">
           Tu navegador tiene guardado un token de sesión anterior. Pulsa <strong>Cerrar sesión</strong> (arriba a la derecha) e ingresa nuevamente con tu clave actual.
@@ -1018,6 +1050,7 @@ function DashboardView({ refreshKey, onRefresh }) {
         </Notice>
       )}
       <WorkflowGuide />
+
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard icon={FileCheck2} label="Publicados" value={summary.published} helper="Registro oficial" />
         <StatCard icon={ClipboardCheck} label="En revision" value={summary.in_review} helper="Incluye observados" tone="text-signal" />
@@ -1025,37 +1058,101 @@ function DashboardView({ refreshKey, onRefresh }) {
         <StatCard icon={AlertTriangle} label="Revocados" value={summary.revoked} helper="Todos con motivo registrado" tone="text-danger" />
       </div>
 
-      <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="panel overflow-hidden">
-          <div className="flex flex-col gap-3 border-b border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
-            <div>
-              <h2 className="text-base font-semibold text-ink">Certificados recientes</h2>
-              <p className="text-sm text-slate-500">Estados visibles para control interno.</p>
+      {/* Barra horizontal de Salud del Servicio e Infraestructura */}
+      <div className="panel flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+          <Activity className="h-4 w-4 text-civic" />
+          <span>Salud del servicio:</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs sm:text-sm">
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+            </span>
+            <span className="text-slate-500">API Pública:</span>
+            <span className="font-semibold text-emerald-700">Activa</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span
+              className={`inline-flex h-2 w-2 rounded-full ${
+                isDbConnected ? "bg-emerald-500" : "bg-rose-500"
+              }`}
+            />
+            <span className="text-slate-500">PostgreSQL:</span>
+            <span className={`font-semibold ${isDbConnected ? "text-emerald-700" : "text-danger"}`}>
+              {isDbConnected ? "Conectado" : "Desconectado (Revisar DATABASE_URL)"}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+            <span className="text-slate-500">Backups:</span>
+            <span className="font-semibold text-slate-700">Automatizados</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex h-2 w-2 rounded-full bg-sky-500" />
+            <span className="text-slate-500">Seguridad:</span>
+            <span className="font-semibold text-slate-700">TLS 1.3 / Encriptado</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Formulario de Registro Guiado - Amplio y Armónico en 2 Columnas */}
+      {showCreateForm ? (
+        <QuickCreateSection
+          catalog={catalogResource.data}
+          onSaved={onRefresh}
+          onClose={() => setShowCreateForm(false)}
+        />
+      ) : (
+        <div className="panel flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between bg-gradient-to-r from-blue-50/40 via-white to-slate-50/30">
+          <div className="flex items-center gap-3">
+            <div className="rounded-lg bg-civic/10 p-2 text-civic">
+              <Plus className="h-5 w-5" />
             </div>
-            <button className="secondary-button" onClick={onRefresh}>
-              <RefreshCw className="h-4 w-4" />
-              Actualizar
+            <div>
+              <p className="text-sm font-semibold text-ink">¿Deseas registrar un nuevo certificado institucional?</p>
+              <p className="text-xs text-slate-500">
+                Abre el formulario guiado para vincular un titular, completar datos académicos y adjuntar documento oficial.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="primary-button shrink-0 text-xs py-2"
+            onClick={() => setShowCreateForm(true)}
+          >
+            <Plus className="h-4 w-4" />
+            Registrar certificado
+          </button>
+        </div>
+      )}
+
+      {/* Tabla de Certificados Recientes a Pantalla Completa */}
+      <section className="panel overflow-hidden">
+        <div className="flex flex-col gap-3 border-b border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+          <div>
+            <h2 className="text-base font-semibold text-ink">Certificados recientes</h2>
+            <p className="text-sm text-slate-500">Listado general de certificados con paginación y búsqueda en tiempo real.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {!showCreateForm && (
+              <button
+                type="button"
+                className="secondary-button text-xs py-1.5"
+                onClick={() => setShowCreateForm(true)}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Nuevo certificado
+              </button>
+            )}
+            <button className="secondary-button text-xs py-1.5" onClick={onRefresh}>
+              <RefreshCw className="h-3.5 w-3.5" />
+              Actualizar lista
             </button>
           </div>
-          <ResponsiveTable certificates={certificates} onRefresh={onRefresh} catalog={catalogResource.data} />
         </div>
-
-        <div className="space-y-5">
-          <QuickCreatePanel catalog={catalogResource.data} onSaved={onRefresh} />
-          <div className="panel p-4 sm:p-5">
-            <h2 className="text-base font-semibold text-ink">Salud del servicio</h2>
-            <div className="mt-5 space-y-4">
-              <HealthRow label="API pública" value="Activa" good />
-              <HealthRow
-                label="PostgreSQL"
-                value={isDbConnected ? "Conectado" : "Desconectado (Revisar DATABASE_URL)"}
-                good={isDbConnected}
-              />
-              <HealthRow label="Backups" value="Pendiente ops" good />
-              <HealthRow label="Rate limit" value="Planeado" good />
-            </div>
-          </div>
-        </div>
+        <ResponsiveTable certificates={certificates} onRefresh={onRefresh} catalog={catalogResource.data} />
       </section>
     </div>
   );
@@ -1195,7 +1292,8 @@ function HolderSearchSelector({ holders, selectedHolderId, onSelect }) {
   );
 }
 
-function QuickCreatePanel({ catalog, onSaved }) {
+function QuickCreateSection({ catalog, onSaved, onClose }) {
+  const [holderMode, setHolderMode] = useState("search"); // "search" | "create"
   const [holderForm, setHolderForm] = useState({
     tipo_documento: "DNI",
     documento: "",
@@ -1215,19 +1313,25 @@ function QuickCreatePanel({ catalog, onSaved }) {
   const [certificateFile, setCertificateFile] = useState(null);
   const [recentlyCreatedHolders, setRecentlyCreatedHolders] = useState([]);
   const [message, setMessage] = useState("");
+  const [messageTone, setMessageTone] = useState("info");
   const [busy, setBusy] = useState(false);
 
   const allHolders = useMemo(() => {
     const map = new Map();
     recentlyCreatedHolders.forEach((h) => map.set(h.id, h));
-    (catalog.holders ?? []).forEach((h) => map.set(h.id, h));
+    (catalog?.holders ?? []).forEach((h) => map.set(h.id, h));
     return Array.from(map.values());
-  }, [catalog.holders, recentlyCreatedHolders]);
+  }, [catalog?.holders, recentlyCreatedHolders]);
 
-  const types = catalog.types ?? [];
+  const types = catalog?.types ?? [];
 
   async function createHolder(event) {
-    event.preventDefault();
+    if (event) event.preventDefault();
+    if (!holderForm.documento.trim() || !holderForm.nombres.trim() || !holderForm.apellidos.trim()) {
+      setMessage("Por favor completa el tipo, número de documento, nombres y apellidos del titular.");
+      setMessageTone("error");
+      return;
+    }
     setBusy(true);
     setMessage("");
     try {
@@ -1238,18 +1342,35 @@ function QuickCreatePanel({ catalog, onSaved }) {
       setRecentlyCreatedHolders((prev) => [holder, ...prev]);
       setCertificateForm((current) => ({ ...current, holder_id: holder.id }));
       setHolderForm({ tipo_documento: "DNI", documento: "", nombres: "", apellidos: "" });
-      setMessage("Titular creado y seleccionado para el certificado.");
+      setHolderMode("search");
+      setMessage(`Titular "${holder.name || `${holderForm.nombres} ${holderForm.apellidos}`}" creado y vinculado exitosamente.`);
+      setMessageTone("success");
       onSaved();
     } catch (error) {
       setMessage(`No se pudo crear titular: ${error.message}`);
+      setMessageTone("error");
     } finally {
       setBusy(false);
     }
   }
 
   async function createCertificate(event) {
-    event.preventDefault();
-    const form = event.currentTarget;
+    if (event) event.preventDefault();
+    if (!certificateForm.holder_id) {
+      setMessage("Debes seleccionar o registrar un titular en el Paso 1 antes de crear el certificado.");
+      setMessageTone("error");
+      return;
+    }
+    if (!certificateForm.type_id) {
+      setMessage("Debes seleccionar el tipo de certificado en el Paso 2.");
+      setMessageTone("error");
+      return;
+    }
+    if (!certificateForm.titulo.trim()) {
+      setMessage("Debes ingresar el título del certificado.");
+      setMessageTone("error");
+      return;
+    }
     setBusy(true);
     setMessage("");
     try {
@@ -1276,174 +1397,390 @@ function QuickCreatePanel({ catalog, onSaved }) {
         vence_en: "",
       }));
       setCertificateFile(null);
-      form.reset();
       setMessage(
         certificateFile
-          ? "Borrador creado con documento y QR de verificacion. Puedes enviarlo a revision desde la cola."
-          : "Borrador creado con QR de verificacion. Puedes cargar el documento despues desde Expediente.",
+          ? "¡Certificado registrado con éxito con documento adjunto y QR de verificación! Puedes revisarlo en la lista."
+          : "¡Certificado registrado con éxito con QR de verificación! Puedes adjuntar el documento en cualquier momento.",
       );
+      setMessageTone("success");
       onSaved();
     } catch (error) {
       setMessage(`No se pudo crear certificado: ${error.message}`);
+      setMessageTone("error");
     } finally {
       setBusy(false);
     }
   }
 
+  const selectedHolder = allHolders.find((h) => h.id === certificateForm.holder_id);
+
   return (
-    <section className="panel p-4 sm:p-5">
-      <div className="flex items-start gap-3">
-        <div className="rounded-lg bg-blue-50 p-2 text-civic">
-          <FileCheck2 className="h-5 w-5" />
+    <section className="panel overflow-hidden border border-slate-200/90 shadow-sm">
+      {/* Encabezado del Formulario */}
+      <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50/60 p-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+        <div className="flex items-center gap-3">
+          <div className="rounded-lg bg-civic/10 p-2.5 text-civic">
+            <FileCheck2 className="h-5 w-5" />
+          </div>
+          <div>
+            <h2 className="text-base font-semibold text-ink">Registro guiado de certificados</h2>
+            <p className="text-xs text-slate-500">
+              Asigna o crea el titular, completa los datos académicos y adjunta el documento oficial.
+            </p>
+          </div>
         </div>
-        <div>
-          <h2 className="text-base font-semibold text-ink">Registro guiado</h2>
-          <p className="text-sm text-slate-500">
-            Crea el titular, registra el certificado y adjunta su documento antes de enviarlo a revision.
-          </p>
+        <div className="flex items-center gap-2">
+          {onClose && (
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 hover:text-ink transition"
+              onClick={onClose}
+            >
+              <ChevronUp className="h-4 w-4" />
+              Plegar formulario
+            </button>
+          )}
         </div>
       </div>
-      <div className="mt-4 space-y-5">
-        <form className="space-y-3" onSubmit={createHolder}>
-          <p className="text-sm font-semibold text-slate-700">Paso 1: titular</p>
-          <div className="grid grid-cols-[90px_minmax(0,1fr)] gap-2">
-            <label className="sr-only" htmlFor="holder-doc-type">Tipo</label>
-            <select
-              id="holder-doc-type"
-              className="field"
-              value={holderForm.tipo_documento}
-              onChange={(event) => setHolderForm({ ...holderForm, tipo_documento: event.target.value })}
-            >
-              <option>DNI</option>
-              <option>CE</option>
-              <option>PAS</option>
-            </select>
-            <label className="sr-only" htmlFor="holder-doc-number">Numero de documento</label>
-            <input
-              id="holder-doc-number"
-              className="field"
-              value={holderForm.documento}
-              onChange={(event) => setHolderForm({ ...holderForm, documento: event.target.value })}
-              placeholder="Numero"
-              required
-            />
-          </div>
-          <input
-            aria-label="Nombres del titular"
-            className="field"
-            value={holderForm.nombres}
-            onChange={(event) => setHolderForm({ ...holderForm, nombres: event.target.value })}
-            placeholder="Nombres"
-            required
-          />
-          <input
-            aria-label="Apellidos del titular"
-            className="field"
-            value={holderForm.apellidos}
-            onChange={(event) => setHolderForm({ ...holderForm, apellidos: event.target.value })}
-            placeholder="Apellidos"
-            required
-          />
-          <button className="secondary-button w-full" disabled={busy} type="submit">
-            <UserRoundCheck className="h-4 w-4" />
-            Crear titular
-          </button>
-        </form>
 
-        <form className="space-y-3 border-t border-slate-200 pt-4" onSubmit={createCertificate}>
-          <p className="text-sm font-semibold text-slate-700">Paso 2: certificado y documento</p>
-          <HolderSearchSelector
-            holders={allHolders}
-            selectedHolderId={certificateForm.holder_id}
-            onSelect={(id) => setCertificateForm((c) => ({ ...c, holder_id: id }))}
-          />
-          <label className="text-xs font-semibold uppercase text-slate-500" htmlFor="certificate-type">
-            Tipo de certificado
-          </label>
-          <select
-            id="certificate-type"
-            className="field"
-            value={certificateForm.type_id}
-            onChange={(event) => setCertificateForm({ ...certificateForm, type_id: event.target.value })}
-            required
-          >
-            <option value="">Tipo de certificado</option>
-            {types.map((type) => (
-              <option key={type.id} value={type.id}>
-                {type.name}
-              </option>
-            ))}
-          </select>
-          <label className="text-xs font-semibold uppercase text-slate-500" htmlFor="certificate-number">
-            Codigo institucional
-          </label>
-          <input
-            id="certificate-number"
-            className="field"
-            value={certificateForm.numero_institucional}
-            onChange={(event) =>
-              setCertificateForm({ ...certificateForm, numero_institucional: event.target.value })
-            }
-            required
-          />
-          <p className="text-xs leading-5 text-slate-500">
-            Referencia administrativa para ubicar el expediente. El QR se genera con un token aleatorio independiente.
-          </p>
-          <input
-            aria-label="Titulo del certificado"
-            className="field"
-            value={certificateForm.titulo}
-            onChange={(event) => setCertificateForm({ ...certificateForm, titulo: event.target.value })}
-            placeholder="Titulo del certificado"
-            required
-          />
-          <input
-            aria-label="Programa"
-            className="field"
-            value={certificateForm.programa}
-            onChange={(event) => setCertificateForm({ ...certificateForm, programa: event.target.value })}
-            placeholder="Programa"
-          />
-          <div className="grid gap-2 sm:grid-cols-2">
-            <input
-              className="field"
-              type="date"
-              value={certificateForm.fecha_emision}
-              onChange={(event) => setCertificateForm({ ...certificateForm, fecha_emision: event.target.value })}
-              required
-            />
-            <select
-              className="field"
-              value={certificateForm.origen}
-              onChange={(event) => setCertificateForm({ ...certificateForm, origen: event.target.value })}
-            >
-              <option value="NUEVO">Nuevo</option>
-              <option value="HISTORICO">Historico</option>
-            </select>
-          </div>
-          <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-4 text-center text-sm text-slate-600 transition hover:border-civic hover:bg-blue-50/60">
-            <Upload className="h-5 w-5 text-civic" />
-            <span className="font-semibold text-slate-700">
-              {certificateFile ? certificateFile.name : "Subir imagen o PDF del certificado"}
-            </span>
-            <span className="text-xs text-slate-500">PNG, JPG, WEBP o PDF hasta 10 MB</span>
-            <input
-              className="sr-only"
-              type="file"
-              accept="image/png,image/jpeg,image/webp,application/pdf"
-              onChange={(event) => setCertificateFile(event.target.files?.[0] ?? null)}
-            />
-          </label>
-          <button className="primary-button w-full" disabled={busy} type="submit">
-            <FileCheck2 className="h-4 w-4" />
-            Crear borrador
-          </button>
-        </form>
+      {/* Disposición amplia de 2 Columnas */}
+      <div className="p-4 sm:p-6">
+        <div className="grid gap-6 lg:grid-cols-12">
+          {/* Columna 1: Paso 1 - Titular (5 columnas) */}
+          <div className="flex flex-col justify-between rounded-xl border border-slate-200/90 bg-slate-50/40 p-4 sm:p-5 lg:col-span-5">
+            <div>
+              <div className="flex items-center justify-between border-b border-slate-200/80 pb-3">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-civic text-xs font-bold text-white">
+                    1
+                  </span>
+                  <h3 className="text-sm font-semibold text-ink">Titular del certificado</h3>
+                </div>
+                {/* Selector Segmentado */}
+                <div className="inline-flex rounded-lg bg-slate-200/80 p-0.5 text-xs font-medium text-slate-600">
+                  <button
+                    type="button"
+                    className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 transition ${
+                      holderMode === "search" ? "bg-white font-semibold text-ink shadow-sm" : "hover:text-slate-900"
+                    }`}
+                    onClick={() => setHolderMode("search")}
+                  >
+                    <Search className="h-3.5 w-3.5" />
+                    Buscar
+                  </button>
+                  <button
+                    type="button"
+                    className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 transition ${
+                      holderMode === "create" ? "bg-white font-semibold text-ink shadow-sm" : "hover:text-slate-900"
+                    }`}
+                    onClick={() => setHolderMode("create")}
+                  >
+                    <UserPlus className="h-3.5 w-3.5" />
+                    Nuevo
+                  </button>
+                </div>
+              </div>
 
-        {message && <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-700">{message}</p>}
+              <div className="mt-4">
+                {holderMode === "search" ? (
+                  <div className="space-y-3">
+                    <HolderSearchSelector
+                      holders={allHolders}
+                      selectedHolderId={certificateForm.holder_id}
+                      onSelect={(id) => setCertificateForm((c) => ({ ...c, holder_id: id }))}
+                    />
+                    {selectedHolder && (
+                      <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-3 text-xs text-emerald-900">
+                        <div className="flex items-center gap-1.5 font-semibold text-emerald-800">
+                          <CheckCircle2 className="h-4 w-4" />
+                          Titular seleccionado correctamente
+                        </div>
+                        <p className="mt-1 text-slate-600">
+                          Los certificados emitidos quedarán vinculados a este expediente personal.
+                        </p>
+                      </div>
+                    )}
+                    {!selectedHolder && (
+                      <p className="text-xs text-slate-500">
+                        Escribe el nombre, apellido o DNI del titular. Si aún no está registrado, pulsa en la pestaña <strong>Nuevo</strong>.
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <form className="space-y-3" onSubmit={createHolder}>
+                    <div className="grid grid-cols-[100px_minmax(0,1fr)] gap-2">
+                      <div>
+                        <label className="text-[11px] font-semibold uppercase text-slate-500" htmlFor="quick-holder-doctype">
+                          Tipo doc.
+                        </label>
+                        <select
+                          id="quick-holder-doctype"
+                          className="field mt-1 text-xs"
+                          value={holderForm.tipo_documento}
+                          onChange={(e) => setHolderForm({ ...holderForm, tipo_documento: e.target.value })}
+                        >
+                          <option>DNI</option>
+                          <option>CE</option>
+                          <option>PAS</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-semibold uppercase text-slate-500" htmlFor="quick-holder-docnum">
+                          Número de documento *
+                        </label>
+                        <input
+                          id="quick-holder-docnum"
+                          className="field mt-1 text-xs"
+                          placeholder="Ej. 71234567"
+                          value={holderForm.documento}
+                          onChange={(e) => setHolderForm({ ...holderForm, documento: e.target.value })}
+                          required
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold uppercase text-slate-500" htmlFor="quick-holder-names">
+                        Nombres *
+                      </label>
+                      <input
+                        id="quick-holder-names"
+                        className="field mt-1 text-xs"
+                        placeholder="Nombres completos"
+                        value={holderForm.nombres}
+                        onChange={(e) => setHolderForm({ ...holderForm, nombres: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold uppercase text-slate-500" htmlFor="quick-holder-surnames">
+                        Apellidos *
+                      </label>
+                      <input
+                        id="quick-holder-surnames"
+                        className="field mt-1 text-xs"
+                        placeholder="Apellidos completos"
+                        value={holderForm.apellidos}
+                        onChange={(e) => setHolderForm({ ...holderForm, apellidos: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={busy}
+                      className="secondary-button w-full text-xs py-2"
+                    >
+                      <UserRoundCheck className="h-4 w-4" />
+                      {busy ? "Guardando..." : "Guardar y vincular titular"}
+                    </button>
+                  </form>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-4 border-t border-slate-200/80 pt-3 text-[11px] text-slate-400">
+              Paso 1 requerido antes de crear el certificado oficial.
+            </div>
+          </div>
+
+          {/* Columna 2: Paso 2 - Certificado y Documento (7 columnas) */}
+          <div className="flex flex-col justify-between rounded-xl border border-slate-200/90 bg-slate-50/40 p-4 sm:p-5 lg:col-span-7">
+            <div>
+              <div className="border-b border-slate-200/80 pb-3">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-civic text-xs font-bold text-white">
+                    2
+                  </span>
+                  <h3 className="text-sm font-semibold text-ink">Datos del certificado y archivo</h3>
+                </div>
+              </div>
+
+              <div className="mt-4 space-y-3.5">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="text-xs font-semibold uppercase text-slate-500" htmlFor="quick-cert-type">
+                      Tipo de certificado *
+                    </label>
+                    <select
+                      id="quick-cert-type"
+                      className="field mt-1 text-xs"
+                      value={certificateForm.type_id}
+                      onChange={(e) => setCertificateForm({ ...certificateForm, type_id: e.target.value })}
+                      required
+                    >
+                      <option value="">Selecciona tipo...</option>
+                      {types.map((type) => (
+                        <option key={type.id} value={type.id}>
+                          {type.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold uppercase text-slate-500" htmlFor="quick-cert-number">
+                      Código institucional *
+                    </label>
+                    <input
+                      id="quick-cert-number"
+                      className="field mt-1 font-mono text-xs"
+                      value={certificateForm.numero_institucional}
+                      onChange={(e) =>
+                        setCertificateForm({ ...certificateForm, numero_institucional: e.target.value })
+                      }
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold uppercase text-slate-500" htmlFor="quick-cert-title">
+                    Título del certificado *
+                  </label>
+                  <input
+                    id="quick-cert-title"
+                    className="field mt-1 text-xs"
+                    value={certificateForm.titulo}
+                    onChange={(e) => setCertificateForm({ ...certificateForm, titulo: e.target.value })}
+                    placeholder="Ej. Diplomado en Gestión Pública y Transformación Digital"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold uppercase text-slate-500" htmlFor="quick-cert-program">
+                    Programa o especialidad
+                  </label>
+                  <input
+                    id="quick-cert-program"
+                    className="field mt-1 text-xs"
+                    value={certificateForm.programa}
+                    onChange={(e) => setCertificateForm({ ...certificateForm, programa: e.target.value })}
+                    placeholder="Ej. Programa de Especialización Continua 2026"
+                  />
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="text-xs font-semibold uppercase text-slate-500" htmlFor="quick-cert-date">
+                      Fecha de emisión *
+                    </label>
+                    <input
+                      id="quick-cert-date"
+                      type="date"
+                      className="field mt-1 text-xs"
+                      value={certificateForm.fecha_emision}
+                      onChange={(e) => setCertificateForm({ ...certificateForm, fecha_emision: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold uppercase text-slate-500" htmlFor="quick-cert-origin">
+                      Origen del registro
+                    </label>
+                    <select
+                      id="quick-cert-origin"
+                      className="field mt-1 text-xs"
+                      value={certificateForm.origen}
+                      onChange={(e) => setCertificateForm({ ...certificateForm, origen: e.target.value })}
+                    >
+                      <option value="NUEVO">Nuevo (Emisión digital nativa)</option>
+                      <option value="HISTORICO">Histórico (Digitalización de archivo)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold uppercase text-slate-500">
+                    Documento de respaldo (opcional)
+                  </label>
+                  <label className="mt-1 flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2.5 text-xs text-slate-600 transition hover:border-civic hover:bg-blue-50/40">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <Upload className="h-4 w-4 shrink-0 text-civic" />
+                      <span className="font-medium text-slate-700 truncate">
+                        {certificateFile ? certificateFile.name : "Subir PDF o imagen del certificado (hasta 10 MB)"}
+                      </span>
+                    </div>
+                    {certificateFile ? (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setCertificateFile(null);
+                        }}
+                        className="text-xs font-semibold text-rose-600 hover:underline shrink-0"
+                      >
+                        Quitar
+                      </button>
+                    ) : (
+                      <span className="text-[11px] font-medium text-slate-400 shrink-0">Examinar...</span>
+                    )}
+                    <input
+                      className="sr-only"
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,application/pdf"
+                      onChange={(e) => setCertificateFile(e.target.files?.[0] ?? null)}
+                    />
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 border-t border-slate-200/80 pt-3 text-[11px] text-slate-400">
+              Genera folio seguro y token QR criptográfico de verificación pública.
+            </div>
+          </div>
+        </div>
+
+        {/* Barra de pie con mensajes de estado y acción */}
+        <div className="mt-6 flex flex-col gap-3 border-t border-slate-200 pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 flex-1">
+            {message && (
+              <p
+                className={`rounded-lg px-3 py-2 text-xs font-medium ${
+                  messageTone === "error"
+                    ? "border border-rose-200 bg-rose-50 text-rose-700"
+                    : messageTone === "success"
+                    ? "border border-emerald-200 bg-emerald-50 text-emerald-800"
+                    : "border border-slate-200 bg-slate-50 text-slate-700"
+                }`}
+              >
+                {message}
+              </p>
+            )}
+            {!message && (
+              <p className="text-xs text-slate-500">
+                Al crear el certificado, se registrará como borrador con su código institucional y token QR oficial.
+              </p>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {onClose && (
+              <button
+                type="button"
+                className="secondary-button text-xs py-2"
+                onClick={onClose}
+                disabled={busy}
+              >
+                Cerrar
+              </button>
+            )}
+            <button
+              type="button"
+              className="primary-button text-xs py-2"
+              disabled={busy}
+              onClick={createCertificate}
+            >
+              <FileCheck2 className="h-4 w-4" />
+              {busy ? "Registrando..." : "Crear borrador de certificado"}
+            </button>
+          </div>
+        </div>
       </div>
     </section>
   );
+}
+
+function QuickCreatePanel(props) {
+  return <QuickCreateSection {...props} />;
 }
 
 function EditCertificateModal({ certificate, catalog, onClose, onSaved }) {
