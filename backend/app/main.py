@@ -25,10 +25,7 @@ DATABASE_URL = _raw_database_url
 
 ADMIN_API_TOKEN = os.getenv("ADMIN_API_TOKEN", "sicv-admin-local")
 
-_cors_env = os.getenv(
-    "CORS_ORIGINS",
-    "http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,http://127.0.0.1:5174",
-)
+_cors_env = os.getenv("CORS_ORIGINS", "*")
 if _cors_env.strip() == "*":
     CORS_ORIGINS = ["*"]
 else:
@@ -40,11 +37,12 @@ app = FastAPI(
     description="API MVP para certificacion y verificacion institucional.",
 )
 
+_is_wildcard = CORS_ORIGINS == ["*"]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
-    allow_origin_regex=r"https?://.*\.railway\.app" if CORS_ORIGINS != ["*"] else None,
-    allow_credentials=True,
+    allow_origin_regex=None if _is_wildcard else r"https?://.*\.railway\.app",
+    allow_credentials=not _is_wildcard,
     allow_methods=["*"],
     allow_headers=["*"],
 )

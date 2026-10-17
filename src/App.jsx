@@ -31,7 +31,23 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000/api/v1";
+const API_URL_STORAGE_KEY = "sicv_custom_api_url";
+
+function getApiBaseUrl() {
+  if (typeof window !== "undefined") {
+    const custom = localStorage.getItem(API_URL_STORAGE_KEY);
+    if (custom && custom.trim()) {
+      return custom.trim().replace(/\/+$/, "");
+    }
+  }
+  const envUrl = import.meta.env.VITE_API_URL;
+  if (envUrl && envUrl.trim()) {
+    return envUrl.trim().replace(/\/+$/, "");
+  }
+  return "http://localhost:8000/api/v1";
+}
+
+const API_BASE_URL = getApiBaseUrl();
 const ADMIN_TOKEN_STORAGE_KEY = "sicv_admin_token";
 
 const fallbackCertificates = [
@@ -196,7 +212,8 @@ async function apiRequest(path, options = {}) {
   const isFormData = options.body instanceof FormData;
   const adminToken = localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY);
   const adminHeaders = path.startsWith("/admin") && adminToken ? { "X-Admin-Token": adminToken } : {};
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const baseUrl = getApiBaseUrl();
+  const response = await fetch(`${baseUrl}${path}`, {
     headers: isFormData
       ? { ...adminHeaders, ...(options.headers ?? {}) }
       : {
@@ -268,7 +285,7 @@ function useProtectedBlob(path, enabled = true, refreshKey = 0) {
     let objectUrl = "";
     const adminToken = localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY);
 
-    fetch(`${API_BASE_URL}${path}`, {
+    fetch(`${getApiBaseUrl()}${path}`, {
       headers: adminToken ? { "X-Admin-Token": adminToken } : {},
     })
       .then((response) => {
@@ -316,7 +333,7 @@ function usePublicBlob(path, enabled = true, refreshKey = 0) {
     let active = true;
     let objectUrl = "";
 
-    fetch(`${API_BASE_URL}${path}`)
+    fetch(`${getApiBaseUrl()}${path}`)
       .then((response) => {
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
@@ -381,7 +398,7 @@ function CertificateDocumentPreview({ blobUrl, contentType, title, alt }) {
 
 async function downloadProtectedFile(path, filename) {
   const adminToken = localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY);
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetch(`${getApiBaseUrl()}${path}`, {
     headers: adminToken ? { "X-Admin-Token": adminToken } : {},
   });
   if (!response.ok) {
@@ -669,7 +686,7 @@ function VerifyView() {
     }
 
     setLookupLoading(true);
-    fetch(`${API_BASE_URL}/public/certificates/${encodeURIComponent(token)}`)
+    fetch(`${getApiBaseUrl()}/public/certificates/${encodeURIComponent(token)}`)
       .then((response) => {
         if (!response.ok) {
           if (response.status === 404) return null;
@@ -2674,7 +2691,7 @@ function SettingsView() {
             <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">Endpoints y Servicios Conectados</h3>
             <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-xs">
               <Info label="Frontend URL" value={window.location.origin} />
-              <Info label="Backend API" value={API_BASE_URL} />
+              <Info label="Backend API" value={getApiBaseUrl()} />
               <Info label="URL Base de Verificación" value={settings?.effective_verification_base_url ?? "Cargando..."} />
               <Info label="Base de Datos" value="PostgreSQL 16 (Conectado)" />
             </div>
@@ -2689,6 +2706,61 @@ function AdminAccessView({ onUnlock }) {
   const [token, setToken] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [apiUrl, setApiUrl] = useState(() => getApiBaseUrl());
+  const [customUrlInput, setCustomUrlInput] = useState(() => getApiBaseUrl());
+  const [showConfig, setShowConfig] = useState(false);
+  const [testStatus, setTestStatus] = useState(""); // "", "testing", "ok", "error", "warning"
+  const [testMessage, setTestMessage] = useState("");
+
+  const isRemoteAndLocalhost =
+    typeof window !== "undefined" &&
+    window.location.hostname !== "localhost" &&
+    window.location.hostname !== "127.0.0.1" &&
+    apiUrl.includes("localhost");
+
+  async function handleTestAndSaveUrl(urlToTest) {
+    const clean = (urlToTest || "").trim().replace(/\/+$/, "");
+    if (!clean) {
+      setTestMessage("La URL no puede estar vacía.");
+      setTestStatus("error");
+      return;
+    }
+    setTestStatus("testing");
+    setTestMessage("Verificando conexión con el backend...");
+
+    const normalizedApiUrl = clean.endsWith("/api/v1") ? clean : `${clean}/api/v1`;
+    const healthUrl = clean.endsWith("/api/v1") ? clean.replace(/\/api\/v1$/, "/health") : `${clean}/health`;
+
+    try {
+      const res = await fetch(healthUrl, { method: "GET" });
+      if (!res.ok && res.status !== 404) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      localStorage.setItem(API_URL_STORAGE_KEY, normalizedApiUrl);
+      setApiUrl(normalizedApiUrl);
+      setCustomUrlInput(normalizedApiUrl);
+      setTestStatus("ok");
+      setTestMessage(`¡Conexión exitosa con ${normalizedApiUrl}!`);
+      setMessage("");
+    } catch (err) {
+      localStorage.setItem(API_URL_STORAGE_KEY, normalizedApiUrl);
+      setApiUrl(normalizedApiUrl);
+      setCustomUrlInput(normalizedApiUrl);
+      setTestStatus("warning");
+      setTestMessage(
+        `Guardado como ${normalizedApiUrl}. Nota: la prueba /health arrojó: ${err?.message || err}. Puedes intentar entrar de todas formas.`
+      );
+    }
+  }
+
+  function handleResetUrl() {
+    localStorage.removeItem(API_URL_STORAGE_KEY);
+    const envUrl = import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1";
+    setApiUrl(envUrl);
+    setCustomUrlInput(envUrl);
+    setTestStatus("");
+    setTestMessage("Restablecido a la URL por defecto.");
+  }
 
   async function submit(event) {
     event.preventDefault();
@@ -2702,21 +2774,32 @@ function AdminAccessView({ onUnlock }) {
     } catch (err) {
       localStorage.removeItem(ADMIN_TOKEN_STORAGE_KEY);
       const errStr = String(err?.message || err);
-      if (errStr.includes("Failed to fetch") || errStr.includes("NetworkError") || errStr.includes("Load failed")) {
-        setMessage("No se pudo conectar con el servidor backend (API no disponible). Verifica la conexión.");
+      const currentUrl = getApiBaseUrl();
+      if (
+        errStr.includes("Failed to fetch") ||
+        errStr.includes("NetworkError") ||
+        errStr.includes("Load failed") ||
+        errStr.includes("ERR_")
+      ) {
+        setMessage(
+          `No se pudo conectar con el backend en "${currentUrl}". Verifica que el backend esté encendido en Railway y que la URL sea la correcta.`
+        );
+        setShowConfig(true);
       } else {
-        setMessage("Clave administrativa no válida. En entorno local la clave es: sicv-admin-local");
+        setMessage("Clave administrativa no válida. Verifica el token configurado en ADMIN_API_TOKEN del backend.");
       }
     } finally {
       setBusy(false);
     }
   }
 
+  const shouldDisplayConfig = isRemoteAndLocalhost || showConfig;
+
   return (
-    <div className="grid min-h-[calc(100vh-9rem)] place-items-center">
-      <form className="panel w-full max-w-md p-5" onSubmit={submit}>
+    <div className="grid min-h-[calc(100vh-9rem)] place-items-center py-6">
+      <form className="panel w-full max-w-lg p-5 sm:p-6 shadow-md" onSubmit={submit}>
         <div className="flex items-start gap-3">
-          <div className="rounded-lg bg-civic-light p-2 text-civic">
+          <div className="rounded-lg bg-civic-light p-2.5 text-civic">
             <LockKeyhole className="h-5 w-5" />
           </div>
           <div>
@@ -2726,6 +2809,80 @@ function AdminAccessView({ onUnlock }) {
             </p>
           </div>
         </div>
+
+        {/* Alerta / Panel de Configuración de Backend (Railway o Producción) */}
+        {shouldDisplayConfig && (
+          <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50/90 p-4 text-xs text-amber-950">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+              <div className="flex-1 space-y-2">
+                <div>
+                  <p className="font-semibold text-sm text-amber-950">Conexión con el Backend en Railway</p>
+                  <p className="mt-0.5 text-slate-700 leading-relaxed">
+                    {isRemoteAndLocalhost
+                      ? `La app está en producción pero intenta conectar a "${apiUrl}" (tu PC local), lo cual produce net::ERR_CONNECTION_REFUSED.`
+                      : `Configura o cambia la URL de la API del backend a la que se conectará este navegador.`}
+                  </p>
+                </div>
+
+                <div className="space-y-1.5 pt-1">
+                  <label className="block font-medium text-slate-800" htmlFor="custom-backend-url">
+                    URL Pública de tu Backend en Railway:
+                  </label>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <input
+                      id="custom-backend-url"
+                      type="url"
+                      value={customUrlInput}
+                      onChange={(e) => setCustomUrlInput(e.target.value)}
+                      placeholder="https://tu-backend.up.railway.app/api/v1"
+                      className="field flex-1 text-xs py-1.5 font-mono"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        className="primary-button text-xs py-1.5 px-3 shrink-0"
+                        disabled={testStatus === "testing"}
+                        onClick={() => handleTestAndSaveUrl(customUrlInput)}
+                      >
+                        {testStatus === "testing" ? "Probando..." : "Guardar y Probar"}
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button text-xs py-1.5 px-2.5 shrink-0"
+                        onClick={handleResetUrl}
+                        title="Restablecer URL por defecto"
+                      >
+                        Restablecer
+                      </button>
+                    </div>
+                  </div>
+                  {testMessage && (
+                    <p
+                      className={`text-[11px] font-medium pt-1 ${
+                        testStatus === "ok"
+                          ? "text-emerald-700"
+                          : testStatus === "warning"
+                          ? "text-amber-800"
+                          : "text-rose-700"
+                      }`}
+                    >
+                      {testMessage}
+                    </p>
+                  )}
+                </div>
+
+                <div className="border-t border-amber-200/80 pt-2 text-[11px] text-slate-600 space-y-0.5">
+                  <p className="font-semibold text-slate-800">💡 Configuración definitiva para todos los usuarios:</p>
+                  <p>1. En Railway, entra al servicio del <strong>Frontend</strong> → pestaña <strong>Variables</strong>.</p>
+                  <p>2. Agrega la variable <code className="font-mono font-bold text-slate-800">VITE_API_URL</code> con valor <code className="font-mono text-slate-800">https://tu-backend.up.railway.app/api/v1</code></p>
+                  <p>3. Pulsa <strong>Redeploy</strong> en el Frontend para que Vite compile con la nueva URL.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         <label className="mt-5 block text-xs font-semibold uppercase text-slate-500" htmlFor="admin-token">
           Clave o Token de Administrador
         </label>
@@ -2748,16 +2905,34 @@ function AdminAccessView({ onUnlock }) {
             Usar clave demo (sicv-admin-local)
           </button>
         </div>
+
         <button className="primary-button mt-4 w-full" disabled={busy || !token.trim()} type="submit">
           <ShieldCheck className="h-4 w-4" />
-          Entrar
+          {busy ? "Verificando acceso..." : "Entrar"}
         </button>
-        {message && <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{message}</p>}
-        <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-relaxed text-slate-600 space-y-1">
+
+        {message && <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700 leading-relaxed">{message}</p>}
+
+        {/* Botón para alternar configuración del Backend manualmente */}
+        <div className="mt-4 pt-3 border-t border-slate-200/80 flex items-center justify-between text-xs text-slate-500">
+          <span className="flex items-center gap-1.5">
+            <Server className="h-3.5 w-3.5 text-slate-400" />
+            <span>API: <strong className="font-mono text-slate-700">{apiUrl}</strong></span>
+          </span>
+          <button
+            type="button"
+            className="text-civic font-medium hover:underline"
+            onClick={() => setShowConfig(!showConfig)}
+          >
+            {showConfig ? "Ocultar ajustes" : "Cambiar API"}
+          </button>
+        </div>
+
+        <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-relaxed text-slate-600 space-y-1">
           <p className="font-semibold text-ink">Autenticación por Token:</p>
           <p>• La base de datos no requiere cuentas de usuario; se autentica mediante un token seguro.</p>
           <p>• <strong>Local:</strong> la clave por defecto es <code className="rounded bg-slate-200 px-1 py-0.5 text-slate-800">sicv-admin-local</code>.</p>
-          <p>• <strong>Producción / Railway:</strong> la clave es la variable de entorno <code className="rounded bg-slate-200 px-1 py-0.5 text-slate-800">ADMIN_API_TOKEN</code> configurada en el backend.</p>
+          <p>• <strong>Producción / Railway:</strong> la clave es la variable de entorno <code className="rounded bg-slate-200 px-1 py-0.5 text-slate-800">ADMIN_API_TOKEN</code> configurada en el servicio Backend.</p>
         </div>
       </form>
     </div>
