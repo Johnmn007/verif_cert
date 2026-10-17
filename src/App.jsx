@@ -244,6 +244,7 @@ function useApiData(path, fallbackValue, refreshKey = 0) {
   const [data, setData] = useState(fallbackValue);
   const [loading, setLoading] = useState(true);
   const [usingFallback, setUsingFallback] = useState(false);
+  const [errorDetail, setErrorDetail] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -254,11 +255,13 @@ function useApiData(path, fallbackValue, refreshKey = 0) {
         if (!active) return;
         setData(payload);
         setUsingFallback(false);
+        setErrorDetail("");
       })
-      .catch(() => {
+      .catch((err) => {
         if (!active) return;
         setData(fallbackValue);
         setUsingFallback(true);
+        setErrorDetail(err?.message || "Error");
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -269,7 +272,7 @@ function useApiData(path, fallbackValue, refreshKey = 0) {
     };
   }, [path, fallbackValue, refreshKey]);
 
-  return { data, loading, usingFallback };
+  return { data, loading, usingFallback, errorDetail };
 }
 
 function useProtectedBlob(path, enabled = true, refreshKey = 0) {
@@ -970,6 +973,11 @@ function DashboardView({ refreshKey, onRefresh }) {
   const certificates = certificatesResource.data.map(normalizeCertificate);
   const summary = summaryResource.data;
   const isDbConnected = healthResource.data?.database_connected ?? true;
+  const isAuthError =
+    certificatesResource.errorDetail?.includes("admin_required") ||
+    summaryResource.errorDetail?.includes("admin_required") ||
+    certificatesResource.errorDetail?.includes("403") ||
+    summaryResource.errorDetail?.includes("403");
 
   return (
     <div className="space-y-5">
@@ -978,7 +986,12 @@ function DashboardView({ refreshKey, onRefresh }) {
         title="Panel institucional"
         description="Resumen operativo para seguimiento de emision, revision, publicacion y control de riesgos."
       />
-      {(!isDbConnected || certificatesResource.usingFallback || summaryResource.usingFallback) && (
+      {isAuthError && (
+        <Notice tone="danger">
+          Tu navegador tiene guardado un token de sesión anterior. Pulsa <strong>Cerrar sesión</strong> (arriba a la derecha) e ingresa nuevamente con tu clave actual.
+        </Notice>
+      )}
+      {!isAuthError && (!isDbConnected || certificatesResource.usingFallback || summaryResource.usingFallback) && (
         <Notice tone="warning">
           La base de datos PostgreSQL no está conectada. Se muestran datos de demostración mientras configuras la variable DATABASE_URL en Railway.
         </Notice>
