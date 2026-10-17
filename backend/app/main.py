@@ -50,6 +50,9 @@ app.add_middleware(
 
 
 @app.get("/health")
+@app.get("/api/health")
+@app.get("/api/v1/health")
+@app.get("/api/v1/admin/health")
 def health_check():
     db_connected = False
     db_detail = "connected"

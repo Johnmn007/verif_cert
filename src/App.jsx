@@ -213,7 +213,10 @@ async function apiRequest(path, options = {}) {
   const adminToken = localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY);
   const adminHeaders = path.startsWith("/admin") && adminToken ? { "X-Admin-Token": adminToken } : {};
   const baseUrl = getApiBaseUrl();
-  const response = await fetch(`${baseUrl}${path}`, {
+  const targetUrl = path === "/health"
+    ? (baseUrl.endsWith("/api/v1") ? baseUrl.replace(/\/api\/v1$/, "/health") : `${baseUrl}/health`)
+    : `${baseUrl}${path}`;
+  const response = await fetch(targetUrl, {
     headers: isFormData
       ? { ...adminHeaders, ...(options.headers ?? {}) }
       : {
@@ -969,15 +972,16 @@ function DashboardView({ refreshKey, onRefresh }) {
   const certificatesResource = useApiData("/admin/certificates", fallbackCertificates, refreshKey);
   const summaryResource = useApiData("/admin/summary", fallbackSummary, refreshKey);
   const catalogResource = useApiData("/admin/catalog", fallbackCatalog, refreshKey);
-  const healthResource = useApiData("/health", { status: "ok", database_connected: false }, refreshKey);
+  const healthResource = useApiData("/health", { status: "ok", database_connected: true }, refreshKey);
   const certificates = certificatesResource.data.map(normalizeCertificate);
   const summary = summaryResource.data;
-  const isDbConnected = healthResource.data?.database_connected ?? true;
+  const isDbConnected = healthResource.data?.database_connected !== false;
   const isAuthError =
     certificatesResource.errorDetail?.includes("admin_required") ||
     summaryResource.errorDetail?.includes("admin_required") ||
     certificatesResource.errorDetail?.includes("403") ||
     summaryResource.errorDetail?.includes("403");
+  const showDbWarning = !healthResource.loading && healthResource.data?.database_connected === false;
 
   return (
     <div className="space-y-5">
@@ -991,9 +995,14 @@ function DashboardView({ refreshKey, onRefresh }) {
           Tu navegador tiene guardado un token de sesión anterior. Pulsa <strong>Cerrar sesión</strong> (arriba a la derecha) e ingresa nuevamente con tu clave actual.
         </Notice>
       )}
-      {!isAuthError && (!isDbConnected || certificatesResource.usingFallback || summaryResource.usingFallback) && (
+      {!isAuthError && showDbWarning && (
         <Notice tone="warning">
           La base de datos PostgreSQL no está conectada. Se muestran datos de demostración mientras configuras la variable DATABASE_URL en Railway.
+        </Notice>
+      )}
+      {!isAuthError && !showDbWarning && (certificatesResource.usingFallback || summaryResource.usingFallback) && (
+        <Notice tone="warning">
+          No se pudieron sincronizar algunos datos en tiempo real. Se muestran datos de respaldo temporales.
         </Notice>
       )}
       <WorkflowGuide />
