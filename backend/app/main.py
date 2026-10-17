@@ -1804,19 +1804,46 @@ def create_disclosure_policy(payload: PolicyCreate, _: None = Depends(require_ad
     return policy
 
 
+@app.get("/api/v1/admin/auth/verify")
+def verify_admin_auth(_: None = Depends(require_admin)):
+    db_connected = False
+    try:
+        with db_cursor() as cur:
+            cur.execute("select 1;")
+            db_connected = True
+    except Exception:
+        pass
+    return {
+        "status": "ok",
+        "authenticated": True,
+        "database_connected": db_connected,
+    }
+
+
 @app.get("/api/v1/admin/summary")
 def summary(_: None = Depends(require_admin)):
-    row = fetch_one(
-        """
-        select
-          count(*) filter (where estado = 'PUBLICADO') as published,
-          count(*) filter (where estado = 'REVOCADO') as revoked,
-          count(*) filter (where estado in ('BORRADOR', 'EN_REVISION', 'OBSERVADO', 'APROBADO')) as in_review,
-          (select count(*) from politica_divulgacion where activa = true) as active_policies
-        from certificado
-        """
-    )
-    return row
+    try:
+        row = fetch_one(
+            """
+            select
+              count(*) filter (where estado = 'PUBLICADO') as published,
+              count(*) filter (where estado = 'REVOCADO') as revoked,
+              count(*) filter (where estado in ('BORRADOR', 'EN_REVISION', 'OBSERVADO', 'APROBADO')) as in_review,
+              (select count(*) from politica_divulgacion where activa = true) as active_policies
+            from certificado
+            """
+        )
+        return row or {
+            "published": 0,
+            "revoked": 0,
+            "in_review": 0,
+            "active_policies": 0,
+        }
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Base de datos PostgreSQL no conectada ({exc}). Configura la variable DATABASE_URL en Railway.",
+        )
 
 
 @app.get("/api/v1/admin/settings")

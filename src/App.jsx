@@ -2779,7 +2779,15 @@ function AdminAccessView({ onUnlock }) {
     const cleaned = token.trim();
     localStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, cleaned);
     try {
-      await apiRequest("/admin/summary");
+      try {
+        await apiRequest("/admin/auth/verify");
+      } catch (authErr) {
+        if (authErr?.message?.includes("404")) {
+          await apiRequest("/admin/summary");
+        } else {
+          throw authErr;
+        }
+      }
       onUnlock();
     } catch (err) {
       localStorage.removeItem(ADMIN_TOKEN_STORAGE_KEY);
@@ -2795,8 +2803,16 @@ function AdminAccessView({ onUnlock }) {
           `No se pudo conectar con el backend en "${currentUrl}". Verifica que el backend esté encendido en Railway y que la URL sea la correcta.`
         );
         setShowConfig(true);
+      } else if (errStr.includes("admin_required") || errStr.includes("403") || errStr.includes("401")) {
+        setMessage(
+          "Clave administrativa no coincide con el token activo en Railway. Recuerda hacer clic en 'Add' y 'Deploy' en la pestaña Variables de Railway."
+        );
+      } else if (errStr.includes("PostgreSQL") || errStr.includes("DATABASE_URL") || errStr.includes("503") || errStr.includes("500")) {
+        setMessage(
+          `La clave fue aceptada, pero la Base de Datos no está conectada: ${errStr}. Configura DATABASE_URL en Railway.`
+        );
       } else {
-        setMessage("Clave administrativa no válida. Verifica el token configurado en ADMIN_API_TOKEN del backend.");
+        setMessage(`Error al acceder: ${errStr}`);
       }
     } finally {
       setBusy(false);
