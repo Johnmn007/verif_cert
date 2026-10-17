@@ -6,6 +6,10 @@ import {
   CalendarClock,
   Check,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   ClipboardCheck,
   ExternalLink,
   Eye,
@@ -1057,6 +1061,140 @@ function DashboardView({ refreshKey, onRefresh }) {
   );
 }
 
+function HolderSearchSelector({ holders, selectedHolderId, onSelect }) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+
+  const selectedHolder = holders.find((h) => h.id === selectedHolderId);
+
+  const filteredHolders = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return holders;
+    return holders.filter((h) => {
+      const name = (h.name ?? "").toLowerCase();
+      const doc = (h.document ?? "").toLowerCase();
+      const rawDoc = (h.raw_document ?? "").toLowerCase();
+      return name.includes(q) || doc.includes(q) || rawDoc.includes(q);
+    });
+  }, [holders, query]);
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <label className="text-xs font-semibold uppercase text-slate-500">
+          Titular *
+        </label>
+        {selectedHolder && (
+          <button
+            type="button"
+            className="text-[11px] font-semibold text-civic hover:underline"
+            onClick={() => {
+              onSelect("");
+              setQuery("");
+              setOpen(true);
+            }}
+          >
+            Cambiar
+          </button>
+        )}
+      </div>
+
+      {selectedHolder ? (
+        <div className="flex items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50/70 px-3 py-2 text-xs">
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold text-ink truncate">{selectedHolder.name}</p>
+            <p className="font-mono text-slate-500 text-[11px]">{selectedHolder.document}</p>
+          </div>
+          <button
+            type="button"
+            className="rounded p-1 text-slate-400 hover:text-slate-600 hover:bg-white transition"
+            onClick={() => {
+              onSelect("");
+              setQuery("");
+              setOpen(true);
+            }}
+            title="Deseleccionar titular"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      ) : (
+        <div className="relative">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+            <input
+              type="text"
+              className="field pl-9 pr-8 text-xs bg-white"
+              placeholder="Buscar por nombre, apellido o DNI..."
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setOpen(true);
+              }}
+              onFocus={() => setOpen(true)}
+            />
+            {query && (
+              <button
+                type="button"
+                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600"
+                onClick={() => setQuery("")}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+
+          {open && (
+            <div className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+              <div className="flex items-center justify-between border-b border-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-400">
+                <span>{filteredHolders.length} titulares encontrados</span>
+                <button
+                  type="button"
+                  className="text-slate-400 hover:text-slate-600"
+                  onClick={() => setOpen(false)}
+                >
+                  Cerrar
+                </button>
+              </div>
+              {filteredHolders.length > 0 ? (
+                filteredHolders.slice(0, 100).map((holder) => (
+                  <button
+                    key={holder.id}
+                    type="button"
+                    className="flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-xs hover:bg-slate-50 transition"
+                    onClick={() => {
+                      onSelect(holder.id);
+                      setOpen(false);
+                      setQuery("");
+                    }}
+                  >
+                    <span className="font-semibold text-ink truncate">{holder.name}</span>
+                    <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-600 shrink-0">
+                      {holder.document}
+                    </span>
+                  </button>
+                ))
+              ) : (
+                <p className="p-3 text-center text-xs text-slate-500">
+                  No hay titulares que coincidan con &quot;{query}&quot;.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+      <input
+        type="text"
+        tabIndex={-1}
+        className="sr-only"
+        required
+        value={selectedHolderId}
+        onChange={() => {}}
+      />
+    </div>
+  );
+}
+
 function QuickCreatePanel({ catalog, onSaved }) {
   const [holderForm, setHolderForm] = useState({
     tipo_documento: "DNI",
@@ -1075,10 +1213,17 @@ function QuickCreatePanel({ catalog, onSaved }) {
     origen: "NUEVO",
   });
   const [certificateFile, setCertificateFile] = useState(null);
+  const [recentlyCreatedHolders, setRecentlyCreatedHolders] = useState([]);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const holders = catalog.holders ?? [];
+  const allHolders = useMemo(() => {
+    const map = new Map();
+    recentlyCreatedHolders.forEach((h) => map.set(h.id, h));
+    (catalog.holders ?? []).forEach((h) => map.set(h.id, h));
+    return Array.from(map.values());
+  }, [catalog.holders, recentlyCreatedHolders]);
+
   const types = catalog.types ?? [];
 
   async function createHolder(event) {
@@ -1090,6 +1235,7 @@ function QuickCreatePanel({ catalog, onSaved }) {
         method: "POST",
         body: JSON.stringify(holderForm),
       });
+      setRecentlyCreatedHolders((prev) => [holder, ...prev]);
       setCertificateForm((current) => ({ ...current, holder_id: holder.id }));
       setHolderForm({ tipo_documento: "DNI", documento: "", nombres: "", apellidos: "" });
       setMessage("Titular creado y seleccionado para el certificado.");
@@ -1206,23 +1352,11 @@ function QuickCreatePanel({ catalog, onSaved }) {
 
         <form className="space-y-3 border-t border-slate-200 pt-4" onSubmit={createCertificate}>
           <p className="text-sm font-semibold text-slate-700">Paso 2: certificado y documento</p>
-          <label className="text-xs font-semibold uppercase text-slate-500" htmlFor="certificate-holder">
-            Titular
-          </label>
-          <select
-            id="certificate-holder"
-            className="field"
-            value={certificateForm.holder_id}
-            onChange={(event) => setCertificateForm({ ...certificateForm, holder_id: event.target.value })}
-            required
-          >
-            <option value="">Seleccionar titular</option>
-            {holders.map((holder) => (
-              <option key={holder.id} value={holder.id}>
-                {holder.name} - {holder.document}
-              </option>
-            ))}
-          </select>
+          <HolderSearchSelector
+            holders={allHolders}
+            selectedHolderId={certificateForm.holder_id}
+            onSelect={(id) => setCertificateForm((c) => ({ ...c, holder_id: id }))}
+          />
           <label className="text-xs font-semibold uppercase text-slate-500" htmlFor="certificate-type">
             Tipo de certificado
           </label>
@@ -1629,6 +1763,46 @@ function ResponsiveTable({ certificates, onRefresh, catalog }) {
   const [deletingCertificate, setDeletingCertificate] = useState(null);
   const [revocationTarget, setRevocationTarget] = useState(null);
 
+  // Pagination & Search state
+  const [searchTerm, setSearchTerm] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  // Real-time filter
+  const filteredCertificates = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return certificates;
+    return certificates.filter((c) => {
+      const code = (c.code ?? c.token ?? "").toLowerCase();
+      const holder = (c.holder ?? "").toLowerCase();
+      const title = (c.title ?? "").toLowerCase();
+      const program = (c.program ?? "").toLowerCase();
+      const status = (c.status ?? "").toLowerCase();
+      const doc = (c.maskedDocument ?? "").toLowerCase();
+      return (
+        code.includes(q) ||
+        holder.includes(q) ||
+        title.includes(q) ||
+        program.includes(q) ||
+        status.includes(q) ||
+        doc.includes(q)
+      );
+    });
+  }, [certificates, searchTerm]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredCertificates.length / pageSize));
+
+  // Reset page when out of bounds
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(1);
+    }
+  }, [totalPages, currentPage]);
+
+  const startIndex = (currentPage - 1) * pageSize;
+  const endIndex = startIndex + pageSize;
+  const currentCertificates = filteredCertificates.slice(startIndex, endIndex);
+
   async function revoke(certificate, reason) {
     if (!certificate.id) {
       setMessage("No se puede revocar una fila local de respaldo.");
@@ -1653,123 +1827,258 @@ function ResponsiveTable({ certificates, onRefresh, catalog }) {
     <>
       {message && <p className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">{message}</p>}
       
+      {/* Barra de Filtro en Tiempo Real y Selector de Registros */}
+      <div className="flex flex-col gap-2.5 border-b border-slate-200 bg-slate-50/70 p-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+          <input
+            type="text"
+            className="field pl-9 pr-8 text-xs bg-white"
+            placeholder="Buscar por código, titular, curso o estado..."
+            value={searchTerm}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              setCurrentPage(1);
+            }}
+          />
+          {searchTerm && (
+            <button
+              type="button"
+              className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600"
+              onClick={() => {
+                setSearchTerm("");
+                setCurrentPage(1);
+              }}
+              title="Limpiar filtro"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 text-xs text-slate-500 justify-between sm:justify-end">
+          <span>Mostrar:</span>
+          <select
+            className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 shadow-2xs"
+            value={pageSize}
+            onChange={(e) => {
+              setPageSize(Number(e.target.value));
+              setCurrentPage(1);
+            }}
+          >
+            <option value={5}>5 por pág.</option>
+            <option value={10}>10 por pág.</option>
+            <option value={20}>20 por pág.</option>
+            <option value={50}>50 por pág.</option>
+          </select>
+          <span className="font-semibold text-slate-700 whitespace-nowrap">
+            {filteredCertificates.length} {filteredCertificates.length === 1 ? "registro" : "registros"}
+          </span>
+        </div>
+      </div>
+
       {/* Vista de Tabla para Pantallas Medianas y Grandes (Tablet / Desktop) */}
       <div className="hidden md:block overflow-x-auto">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+        <table className="w-full text-left text-sm table-fixed">
+          <thead className="bg-slate-50 text-xs uppercase text-slate-500 border-b border-slate-200">
             <tr>
-              <th className="px-4 py-3 font-semibold">Código</th>
-              <th className="px-4 py-3 font-semibold">Titular</th>
-              <th className="px-4 py-3 font-semibold">Certificado</th>
-              <th className="px-4 py-3 font-semibold">Estado</th>
-              <th className="px-4 py-3 font-semibold">Fecha</th>
-              <th className="px-4 py-3 font-semibold text-right">Acciones</th>
+              <th className="w-[145px] px-3.5 py-3 font-semibold">Código</th>
+              <th className="w-[180px] px-3.5 py-3 font-semibold">Titular</th>
+              <th className="px-3.5 py-3 font-semibold">Certificado</th>
+              <th className="w-[115px] px-3 py-3 font-semibold">Estado</th>
+              <th className="w-[95px] px-3 py-3 font-semibold">Fecha</th>
+              <th className="w-[135px] px-3 py-3 font-semibold text-right">Acciones</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-200">
-            {certificates.map((certificate) => (
-              <tr key={certificate.id ?? certificate.token} className="hover:bg-slate-50/80 transition">
-                <td className="px-4 py-3.5 font-mono text-xs font-semibold text-civic">{certificate.code ?? certificate.token}</td>
-                <td className="px-4 py-3.5 text-slate-700 font-medium">{certificate.holder}</td>
-                <td className="px-4 py-3.5 text-slate-600">{certificate.title}</td>
-                <td className="px-4 py-3.5">
-                  <StatusBadge value={certificate.status} />
-                </td>
-                <td className="px-4 py-3.5 text-xs text-slate-500">{certificate.issuedOn}</td>
-                <td className="px-4 py-3.5 text-right">
-                  <div className="inline-flex items-center gap-1.5">
-                    <button
-                      className="secondary-button min-h-9 px-2.5 py-1 text-xs"
-                      title="Ver expediente completo"
-                      onClick={() => setSelectedCertificate(certificate)}
-                    >
-                      <Eye className="h-3.5 w-3.5" />
-                      <span className="hidden xl:inline">Expediente</span>
-                    </button>
-                    <button
-                      className="secondary-button min-h-9 px-2.5 py-1 text-xs text-slate-700 hover:border-civic hover:text-civic"
-                      title="Editar datos del certificado"
-                      onClick={() => setEditingCertificate(certificate)}
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                      <span className="hidden xl:inline">Editar</span>
-                    </button>
-                    {certificate.status === "PUBLICADO" && (
-                      <button
-                        className="secondary-button min-h-9 px-2.5 py-1 text-xs text-amber-700 hover:border-amber-300"
-                        title="Revocar certificado"
-                        onClick={() => setRevocationTarget(certificate)}
-                      >
-                        <AlertTriangle className="h-3.5 w-3.5" />
-                        <span className="hidden xl:inline">Revocar</span>
-                      </button>
+          <tbody className="divide-y divide-slate-200 bg-white">
+            {currentCertificates.length > 0 ? (
+              currentCertificates.map((certificate) => (
+                <tr key={certificate.id ?? certificate.token} className="hover:bg-slate-50/80 transition">
+                  <td className="px-3.5 py-2.5 font-mono text-xs font-semibold text-civic truncate" title={certificate.code ?? certificate.token}>
+                    {certificate.code ?? certificate.token}
+                  </td>
+                  <td className="px-3.5 py-2.5 text-slate-800 font-medium truncate" title={certificate.holder}>
+                    {certificate.holder}
+                  </td>
+                  <td className="px-3.5 py-2.5 text-slate-600 truncate" title={certificate.title}>
+                    <p className="truncate font-normal">{certificate.title}</p>
+                    {certificate.program && (
+                      <p className="truncate text-[11px] text-slate-400">{certificate.program}</p>
                     )}
-                    <button
-                      className="secondary-button min-h-9 px-2.5 py-1 text-xs text-danger hover:border-red-300 hover:bg-red-50"
-                      title="Eliminar certificado"
-                      onClick={() => setDeletingCertificate(certificate)}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      <span className="hidden xl:inline">Eliminar</span>
-                    </button>
-                  </div>
+                  </td>
+                  <td className="px-3 py-2.5 whitespace-nowrap">
+                    <StatusBadge value={certificate.status} />
+                  </td>
+                  <td className="px-3 py-2.5 text-xs text-slate-500 whitespace-nowrap">
+                    {certificate.issuedOn}
+                  </td>
+                  <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                    <div className="inline-flex items-center gap-1 justify-end">
+                      <button
+                        type="button"
+                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-2xs hover:border-civic hover:bg-blue-50 hover:text-civic transition"
+                        title="Ver expediente completo"
+                        onClick={() => setSelectedCertificate(certificate)}
+                      >
+                        <Eye className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-2xs hover:border-civic hover:bg-blue-50 hover:text-civic transition"
+                        title="Editar datos del certificado"
+                        onClick={() => setEditingCertificate(certificate)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                      {certificate.status === "PUBLICADO" && (
+                        <button
+                          type="button"
+                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-amber-200 bg-amber-50/70 text-amber-700 shadow-2xs hover:bg-amber-100 transition"
+                          title="Revocar certificado"
+                          onClick={() => setRevocationTarget(certificate)}
+                        >
+                          <AlertTriangle className="h-4 w-4" />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-red-200 bg-red-50/70 text-danger shadow-2xs hover:bg-red-100 transition"
+                        title="Eliminar certificado"
+                        onClick={() => setDeletingCertificate(certificate)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-500">
+                  {searchTerm ? `No se encontraron certificados para "${searchTerm}".` : "No hay certificados registrados."}
                 </td>
               </tr>
-            ))}
+            )}
           </tbody>
         </table>
       </div>
 
       {/* Vista de Tarjetas Optimizada para Móviles (Smartphones) */}
-      <div className="divide-y divide-slate-100 md:hidden">
-        {certificates.map((certificate) => (
-          <div key={certificate.id ?? certificate.token} className="p-4 space-y-3 hover:bg-slate-50/60 transition">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0 flex-1">
-                <span className="font-mono text-xs font-bold text-civic block truncate">{certificate.code ?? certificate.token}</span>
-                <h3 className="font-semibold text-ink text-sm mt-0.5 truncate">{certificate.holder}</h3>
-                <p className="text-xs text-slate-500 truncate">{certificate.title}</p>
+      <div className="divide-y divide-slate-100 md:hidden bg-white">
+        {currentCertificates.length > 0 ? (
+          currentCertificates.map((certificate) => (
+            <div key={certificate.id ?? certificate.token} className="p-4 space-y-3 hover:bg-slate-50/60 transition">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <span className="font-mono text-xs font-bold text-civic block truncate">{certificate.code ?? certificate.token}</span>
+                  <h3 className="font-semibold text-ink text-sm mt-0.5 truncate">{certificate.holder}</h3>
+                  <p className="text-xs text-slate-500 truncate">{certificate.title}</p>
+                </div>
+                <StatusBadge value={certificate.status} />
               </div>
-              <StatusBadge value={certificate.status} />
-            </div>
-            <div className="flex items-center justify-between pt-1 border-t border-slate-100/80 text-xs text-slate-500">
-              <span>{certificate.issuedOn}</span>
-              <div className="flex flex-wrap gap-1.5">
-                <button
-                  className="secondary-button min-h-8 px-2 py-1 text-xs"
-                  onClick={() => setSelectedCertificate(certificate)}
-                >
-                  <Eye className="h-3.5 w-3.5" />
-                  Ver
-                </button>
-                <button
-                  className="secondary-button min-h-8 px-2 py-1 text-xs text-slate-700"
-                  onClick={() => setEditingCertificate(certificate)}
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                  Editar
-                </button>
-                {certificate.status === "PUBLICADO" && (
+              <div className="flex items-center justify-between pt-1 border-t border-slate-100/80 text-xs text-slate-500">
+                <span>{certificate.issuedOn}</span>
+                <div className="flex items-center gap-1">
                   <button
-                    className="secondary-button min-h-8 px-2 py-1 text-xs text-amber-700"
-                    onClick={() => setRevocationTarget(certificate)}
+                    type="button"
+                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-2xs hover:bg-slate-50"
+                    title="Ver expediente"
+                    onClick={() => setSelectedCertificate(certificate)}
                   >
-                    <AlertTriangle className="h-3.5 w-3.5" />
-                    Revocar
+                    <Eye className="h-4 w-4" />
                   </button>
-                )}
-                <button
-                  className="secondary-button min-h-8 px-2 py-1 text-xs text-danger"
-                  onClick={() => setDeletingCertificate(certificate)}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  Eliminar
-                </button>
+                  <button
+                    type="button"
+                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-2xs hover:bg-slate-50"
+                    title="Editar datos"
+                    onClick={() => setEditingCertificate(certificate)}
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                  {certificate.status === "PUBLICADO" && (
+                    <button
+                      type="button"
+                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-amber-200 bg-amber-50 text-amber-700 shadow-2xs hover:bg-amber-100"
+                      title="Revocar"
+                      onClick={() => setRevocationTarget(certificate)}
+                    >
+                      <AlertTriangle className="h-4 w-4" />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-danger shadow-2xs hover:bg-red-100"
+                    title="Eliminar"
+                    onClick={() => setDeletingCertificate(certificate)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
             </div>
+          ))
+        ) : (
+          <div className="p-6 text-center text-sm text-slate-500">
+            {searchTerm ? `No se encontraron certificados para "${searchTerm}".` : "No hay certificados registrados."}
           </div>
-        ))}
+        )}
       </div>
+
+      {/* Controles de Paginación */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-t border-slate-200 px-4 py-3 bg-slate-50/70 text-xs">
+        <p className="text-slate-500">
+          Mostrando <span className="font-semibold text-ink">{filteredCertificates.length > 0 ? startIndex + 1 : 0}</span> a{" "}
+          <span className="font-semibold text-ink">{Math.min(endIndex, filteredCertificates.length)}</span> de{" "}
+          <span className="font-semibold text-ink">{filteredCertificates.length}</span> registros
+        </p>
+
+        {totalPages > 1 && (
+          <div className="inline-flex items-center gap-1">
+            <button
+              type="button"
+              className="secondary-button min-h-8 px-2 py-1 text-xs disabled:opacity-40"
+              disabled={currentPage <= 1}
+              onClick={() => setCurrentPage(1)}
+              title="Primera página"
+            >
+              <ChevronsLeft className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              className="secondary-button min-h-8 px-2.5 py-1 text-xs disabled:opacity-40"
+              disabled={currentPage <= 1}
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+            >
+              <ChevronLeft className="h-3.5 w-3.5 mr-0.5" />
+              Anterior
+            </button>
+
+            <span className="px-2.5 py-1 font-semibold text-slate-700 bg-white rounded-md border border-slate-200">
+              {currentPage} / {totalPages}
+            </span>
+
+            <button
+              type="button"
+              className="secondary-button min-h-8 px-2.5 py-1 text-xs disabled:opacity-40"
+              disabled={currentPage >= totalPages}
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+            >
+              Siguiente
+              <ChevronRight className="h-3.5 w-3.5 ml-0.5" />
+            </button>
+            <button
+              type="button"
+              className="secondary-button min-h-8 px-2 py-1 text-xs disabled:opacity-40"
+              disabled={currentPage >= totalPages}
+              onClick={() => setCurrentPage(totalPages)}
+              title="Última página"
+            >
+              <ChevronsRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+
       {selectedCertificate && (
         <CertificateModal
           certificate={selectedCertificate}

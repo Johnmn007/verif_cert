@@ -1258,8 +1258,8 @@ def public_certificate_document(token: str):
 
 
 @app.get("/api/v1/admin/certificates")
-def admin_certificates(_: None = Depends(require_admin)):
-    return certificate_projection(limit=50)
+def admin_certificates(limit: int = 500, _: None = Depends(require_admin)):
+    return certificate_projection(limit=limit)
 
 
 @app.get("/api/v1/admin/catalog")
@@ -1268,7 +1268,8 @@ def catalog(_: None = Depends(require_admin)):
         "holders": fetch_all(
             """
             select id, concat(nombres, ' ', apellidos) as name,
-                   concat(tipo_documento, ' ', documento_mascara) as document
+                   concat(tipo_documento, ' ', documento_mascara) as document,
+                   documento_normalizado as raw_document
             from titular
             order by created_at desc, nombres asc
             """
