@@ -18,6 +18,7 @@ import {
   LockKeyhole,
   LogOut,
   Menu,
+  Pencil,
   QrCode,
   RefreshCw,
   Save,
@@ -25,6 +26,7 @@ import {
   Server,
   Settings,
   ShieldCheck,
+  Trash2,
   Upload,
   UserRoundCheck,
   X,
@@ -191,6 +193,12 @@ function normalizeCertificate(certificate) {
     code: certificate.code,
     token: certificate.token ?? certificate.code,
     holder: certificate.holder,
+    holderId: certificate.holder_id ?? certificate.holderId,
+    holderNames: certificate.holder_names ?? certificate.holderNames ?? "",
+    holderSurnames: certificate.holder_surnames ?? certificate.holderSurnames ?? "",
+    holderDocType: certificate.holder_doc_type ?? certificate.holderDocType ?? "DNI",
+    holderDocNumber: certificate.holder_doc_number ?? certificate.holderDocNumber ?? "",
+    typeId: certificate.type_id ?? certificate.typeId ?? "",
     maskedDocument: certificate.masked_document ?? certificate.maskedDocument,
     title: certificate.title,
     program: certificate.program,
@@ -1025,7 +1033,7 @@ function DashboardView({ refreshKey, onRefresh }) {
               Actualizar
             </button>
           </div>
-          <ResponsiveTable certificates={certificates} onRefresh={onRefresh} />
+          <ResponsiveTable certificates={certificates} onRefresh={onRefresh} catalog={catalogResource.data} />
         </div>
 
         <div className="space-y-5">
@@ -1304,9 +1312,321 @@ function QuickCreatePanel({ catalog, onSaved }) {
   );
 }
 
-function ResponsiveTable({ certificates, onRefresh }) {
+function EditCertificateModal({ certificate, catalog, onClose, onSaved }) {
+  const [form, setForm] = useState({
+    nombres: certificate.holderNames || certificate.holder?.split(" ")?.[0] || "",
+    apellidos: certificate.holderSurnames || certificate.holder?.split(" ")?.slice(1).join(" ") || "",
+    tipo_documento: certificate.holderDocType || "DNI",
+    documento: certificate.holderDocNumber || (certificate.maskedDocument ? certificate.maskedDocument.replace(/^[^\d]*/, "") : ""),
+    numero_institucional: certificate.code ?? certificate.token ?? "",
+    titulo: certificate.title ?? "",
+    programa: certificate.program ?? "",
+    type_id: certificate.typeId ?? "",
+    fecha_emision: certificate.issuedOn ?? new Date().toISOString().slice(0, 10),
+    vence_en: certificate.expiresOn ?? "",
+    reason: "",
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const types = catalog?.types ?? [];
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    if (!certificate.id) {
+      setError("No se puede editar una fila de demostración local.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await apiRequest(`/admin/certificates/${certificate.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          nombres: form.nombres.trim(),
+          apellidos: form.apellidos.trim(),
+          tipo_documento: form.tipo_documento.trim().toUpperCase(),
+          documento: form.documento.trim(),
+          numero_institucional: form.numero_institucional.trim(),
+          titulo: form.titulo.trim(),
+          programa: form.programa.trim() || null,
+          type_id: form.type_id || null,
+          fecha_emision: form.fecha_emision,
+          vence_en: form.vence_en || null,
+          reason: form.reason.trim() || null,
+        }),
+      });
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(`No se pudo actualizar: ${err.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/50 backdrop-blur-xs p-3 sm:p-4">
+      <form
+        onSubmit={handleSubmit}
+        className="panel flex flex-col max-h-[94vh] w-full max-w-2xl overflow-hidden shadow-2xl"
+      >
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-200 p-4 sm:p-5">
+          <div className="flex items-center gap-3">
+            <div className="rounded-lg bg-blue-50 p-2 text-civic">
+              <Pencil className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-ink">Editar certificado</h2>
+              <p className="text-xs text-slate-500">
+                Corrige errores en nombres, documento, título, código o fechas. Se guardará registro de auditoría.
+              </p>
+            </div>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="Cerrar edicion">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+          {error && (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3.5 space-y-3">
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-600">Datos del Participante (Titular)</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Nombres *</label>
+                <input
+                  type="text"
+                  className="field"
+                  value={form.nombres}
+                  onChange={(e) => setForm({ ...form, nombres: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Apellidos *</label>
+                <input
+                  type="text"
+                  className="field"
+                  value={form.apellidos}
+                  onChange={(e) => setForm({ ...form, apellidos: e.target.value })}
+                  required
+                />
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Tipo de Documento *</label>
+                <select
+                  className="field"
+                  value={form.tipo_documento}
+                  onChange={(e) => setForm({ ...form, tipo_documento: e.target.value })}
+                  required
+                >
+                  <option value="DNI">DNI - Documento Nacional</option>
+                  <option value="CE">CE - Carnet de Extranjería</option>
+                  <option value="PASAPORTE">Pasaporte</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Número de Documento *</label>
+                <input
+                  type="text"
+                  className="field"
+                  value={form.documento}
+                  onChange={(e) => setForm({ ...form, documento: e.target.value })}
+                  placeholder="ej. 72345678"
+                  required
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3.5 space-y-3">
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-600">Datos del Certificado</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Código Institucional / Folio *</label>
+                <input
+                  type="text"
+                  className="field font-mono font-semibold"
+                  value={form.numero_institucional}
+                  onChange={(e) => setForm({ ...form, numero_institucional: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Tipo de Certificado</label>
+                <select
+                  className="field"
+                  value={form.type_id}
+                  onChange={(e) => setForm({ ...form, type_id: e.target.value })}
+                >
+                  <option value="">(Mantener actual / Ninguno)</option>
+                  {types.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.codigo} - {t.nombre}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Título del Certificado *</label>
+              <input
+                type="text"
+                className="field"
+                value={form.titulo}
+                onChange={(e) => setForm({ ...form, titulo: e.target.value })}
+                placeholder="ej. Certificado de Capacitación"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Programa / Curso / Especialidad</label>
+              <input
+                type="text"
+                className="field"
+                value={form.programa}
+                onChange={(e) => setForm({ ...form, programa: e.target.value })}
+                placeholder="ej. Gestión Administrativa y Tributaria"
+              />
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Fecha de Emisión *</label>
+                <input
+                  type="date"
+                  className="field"
+                  value={form.fecha_emision}
+                  onChange={(e) => setForm({ ...form, fecha_emision: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Fecha de Vencimiento (opcional)</label>
+                <input
+                  type="date"
+                  className="field"
+                  value={form.vence_en}
+                  onChange={(e) => setForm({ ...form, vence_en: e.target.value })}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">
+              Motivo o Justificación de la Modificación (para Auditoría)
+            </label>
+            <input
+              type="text"
+              className="field"
+              value={form.reason}
+              onChange={(e) => setForm({ ...form, reason: e.target.value })}
+              placeholder="ej. Corrección de error tipográfico en apellidos"
+            />
+          </div>
+        </div>
+
+        <div className="flex shrink-0 items-center justify-end gap-3 border-t border-slate-200 bg-slate-50 p-4">
+          <button type="button" className="secondary-button" onClick={onClose} disabled={busy}>
+            Cancelar
+          </button>
+          <button type="submit" className="primary-button" disabled={busy}>
+            <Save className="h-4 w-4" />
+            {busy ? "Guardando..." : "Guardar cambios"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function DeleteConfirmModal({ certificate, onClose, onDeleted }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleDelete() {
+    if (!certificate.id) {
+      setError("No se puede eliminar una fila de demostración local.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await apiRequest(`/admin/certificates/${certificate.id}`, {
+        method: "DELETE",
+      });
+      onDeleted();
+      onClose();
+    } catch (err) {
+      setError(`No se pudo eliminar: ${err.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/50 backdrop-blur-xs p-4">
+      <div className="panel w-full max-w-md p-5 shadow-2xl">
+        <div className="flex items-start gap-3">
+          <div className="rounded-lg bg-red-50 p-2.5 text-danger shrink-0">
+            <Trash2 className="h-6 w-6" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-ink">¿Eliminar certificado?</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Esta acción no se puede deshacer. Se eliminará el registro oficial, el código QR y los archivos adjuntos.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3.5 text-sm space-y-1">
+          <p className="font-mono font-semibold text-civic">{certificate.code ?? certificate.token}</p>
+          <p className="font-semibold text-ink">{certificate.holder}</p>
+          <p className="text-xs text-slate-500">{certificate.title}</p>
+        </div>
+
+        {error && (
+          <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+
+        <div className="mt-5 flex items-center justify-end gap-3">
+          <button type="button" className="secondary-button" onClick={onClose} disabled={busy}>
+            Cancelar
+          </button>
+          <button
+            type="button"
+            className="rounded-lg bg-danger px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-red-700 transition disabled:opacity-50 flex items-center gap-2"
+            onClick={handleDelete}
+            disabled={busy}
+          >
+            <Trash2 className="h-4 w-4" />
+            {busy ? "Eliminando..." : "Sí, eliminar definitivamente"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ResponsiveTable({ certificates, onRefresh, catalog }) {
   const [message, setMessage] = useState("");
   const [selectedCertificate, setSelectedCertificate] = useState(null);
+  const [editingCertificate, setEditingCertificate] = useState(null);
+  const [deletingCertificate, setDeletingCertificate] = useState(null);
   const [revocationTarget, setRevocationTarget] = useState(null);
 
   async function revoke(certificate, reason) {
@@ -1322,7 +1642,7 @@ function ResponsiveTable({ certificates, onRefresh }) {
           reason,
         }),
       });
-      setMessage("Certificado revocado. La verificacion publica reflejara el nuevo estado.");
+      setMessage("Certificado revocado. La verificación pública reflejará el nuevo estado.");
       onRefresh();
     } catch (error) {
       setMessage(`No se pudo revocar: ${error.message}`);
@@ -1338,12 +1658,12 @@ function ResponsiveTable({ certificates, onRefresh }) {
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-50 text-xs uppercase text-slate-500">
             <tr>
-              <th className="px-4 py-3 font-semibold">Codigo</th>
+              <th className="px-4 py-3 font-semibold">Código</th>
               <th className="px-4 py-3 font-semibold">Titular</th>
               <th className="px-4 py-3 font-semibold">Certificado</th>
               <th className="px-4 py-3 font-semibold">Estado</th>
               <th className="px-4 py-3 font-semibold">Fecha</th>
-              <th className="px-4 py-3 font-semibold text-right">Accion</th>
+              <th className="px-4 py-3 font-semibold text-right">Acciones</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200">
@@ -1357,17 +1677,41 @@ function ResponsiveTable({ certificates, onRefresh }) {
                 </td>
                 <td className="px-4 py-3.5 text-xs text-slate-500">{certificate.issuedOn}</td>
                 <td className="px-4 py-3.5 text-right">
-                  <div className="inline-flex gap-2">
-                    <button className="secondary-button min-h-9 px-3 py-1 text-xs" onClick={() => setSelectedCertificate(certificate)}>
+                  <div className="inline-flex items-center gap-1.5">
+                    <button
+                      className="secondary-button min-h-9 px-2.5 py-1 text-xs"
+                      title="Ver expediente completo"
+                      onClick={() => setSelectedCertificate(certificate)}
+                    >
                       <Eye className="h-3.5 w-3.5" />
-                      Expediente
+                      <span className="hidden xl:inline">Expediente</span>
+                    </button>
+                    <button
+                      className="secondary-button min-h-9 px-2.5 py-1 text-xs text-slate-700 hover:border-civic hover:text-civic"
+                      title="Editar datos del certificado"
+                      onClick={() => setEditingCertificate(certificate)}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                      <span className="hidden xl:inline">Editar</span>
                     </button>
                     {certificate.status === "PUBLICADO" && (
-                      <button className="secondary-button min-h-9 px-3 py-1 text-xs text-danger hover:border-red-300" onClick={() => setRevocationTarget(certificate)}>
+                      <button
+                        className="secondary-button min-h-9 px-2.5 py-1 text-xs text-amber-700 hover:border-amber-300"
+                        title="Revocar certificado"
+                        onClick={() => setRevocationTarget(certificate)}
+                      >
                         <AlertTriangle className="h-3.5 w-3.5" />
-                        Revocar
+                        <span className="hidden xl:inline">Revocar</span>
                       </button>
                     )}
+                    <button
+                      className="secondary-button min-h-9 px-2.5 py-1 text-xs text-danger hover:border-red-300 hover:bg-red-50"
+                      title="Eliminar certificado"
+                      onClick={() => setDeletingCertificate(certificate)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      <span className="hidden xl:inline">Eliminar</span>
+                    </button>
                   </div>
                 </td>
               </tr>
@@ -1376,7 +1720,7 @@ function ResponsiveTable({ certificates, onRefresh }) {
         </table>
       </div>
 
-      {/* Vista de Tarjetas Optimizada para Moviles (Smartphones) */}
+      {/* Vista de Tarjetas Optimizada para Móviles (Smartphones) */}
       <div className="divide-y divide-slate-100 md:hidden">
         {certificates.map((certificate) => (
           <div key={certificate.id ?? certificate.token} className="p-4 space-y-3 hover:bg-slate-50/60 transition">
@@ -1390,17 +1734,37 @@ function ResponsiveTable({ certificates, onRefresh }) {
             </div>
             <div className="flex items-center justify-between pt-1 border-t border-slate-100/80 text-xs text-slate-500">
               <span>{certificate.issuedOn}</span>
-              <div className="flex gap-2">
-                <button className="secondary-button min-h-8 px-2.5 py-1 text-xs" onClick={() => setSelectedCertificate(certificate)}>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  className="secondary-button min-h-8 px-2 py-1 text-xs"
+                  onClick={() => setSelectedCertificate(certificate)}
+                >
                   <Eye className="h-3.5 w-3.5" />
-                  Expediente
+                  Ver
+                </button>
+                <button
+                  className="secondary-button min-h-8 px-2 py-1 text-xs text-slate-700"
+                  onClick={() => setEditingCertificate(certificate)}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                  Editar
                 </button>
                 {certificate.status === "PUBLICADO" && (
-                  <button className="secondary-button min-h-8 px-2.5 py-1 text-xs text-danger" onClick={() => setRevocationTarget(certificate)}>
+                  <button
+                    className="secondary-button min-h-8 px-2 py-1 text-xs text-amber-700"
+                    onClick={() => setRevocationTarget(certificate)}
+                  >
                     <AlertTriangle className="h-3.5 w-3.5" />
                     Revocar
                   </button>
                 )}
+                <button
+                  className="secondary-button min-h-8 px-2 py-1 text-xs text-danger"
+                  onClick={() => setDeletingCertificate(certificate)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Eliminar
+                </button>
               </div>
             </div>
           </div>
@@ -1411,6 +1775,35 @@ function ResponsiveTable({ certificates, onRefresh }) {
           certificate={selectedCertificate}
           onClose={() => setSelectedCertificate(null)}
           onRefresh={onRefresh}
+          onEdit={(cert) => {
+            setSelectedCertificate(null);
+            setEditingCertificate(cert);
+          }}
+          onDelete={(cert) => {
+            setSelectedCertificate(null);
+            setDeletingCertificate(cert);
+          }}
+        />
+      )}
+      {editingCertificate && (
+        <EditCertificateModal
+          certificate={editingCertificate}
+          catalog={catalog}
+          onClose={() => setEditingCertificate(null)}
+          onSaved={() => {
+            setMessage("Certificado actualizado correctamente.");
+            onRefresh();
+          }}
+        />
+      )}
+      {deletingCertificate && (
+        <DeleteConfirmModal
+          certificate={deletingCertificate}
+          onClose={() => setDeletingCertificate(null)}
+          onDeleted={() => {
+            setMessage("Certificado eliminado correctamente.");
+            onRefresh();
+          }}
         />
       )}
       {revocationTarget && (
@@ -1485,7 +1878,7 @@ function RevocationModal({ certificate, onCancel, onConfirm }) {
   );
 }
 
-function CertificateModal({ certificate, onClose, onRefresh }) {
+function CertificateModal({ certificate, onClose, onRefresh, onEdit, onDelete }) {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [documentAvailable, setDocumentAvailable] = useState(Boolean(certificate.hasDocument));
@@ -1627,6 +2020,24 @@ function CertificateModal({ certificate, onClose, onRefresh }) {
                 onChange={uploadDocument}
               />
             </label>
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <button
+                type="button"
+                className="secondary-button w-full text-slate-700 hover:border-civic hover:text-civic"
+                onClick={() => onEdit?.(certificate)}
+              >
+                <Pencil className="h-4 w-4" />
+                Editar
+              </button>
+              <button
+                type="button"
+                className="secondary-button w-full text-danger hover:border-red-300 hover:bg-red-50"
+                onClick={() => onDelete?.(certificate)}
+              >
+                <Trash2 className="h-4 w-4" />
+                Eliminar
+              </button>
+            </div>
             {message && <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-700">{message}</p>}
           </aside>
         </div>

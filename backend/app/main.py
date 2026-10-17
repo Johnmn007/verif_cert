@@ -118,6 +118,20 @@ class StateAction(BaseModel):
     reason: str | None = Field(default=None, max_length=300)
 
 
+class CertificateUpdate(BaseModel):
+    nombres: str = Field(min_length=2, max_length=120)
+    apellidos: str = Field(min_length=2, max_length=120)
+    tipo_documento: str = Field(default="DNI", min_length=2, max_length=16)
+    documento: str = Field(min_length=4, max_length=32)
+    numero_institucional: str = Field(min_length=2, max_length=64)
+    titulo: str = Field(min_length=2, max_length=200)
+    programa: str | None = Field(default=None, max_length=160)
+    type_id: str | None = None
+    fecha_emision: date
+    vence_en: date | None = None
+    reason: str | None = Field(default=None, max_length=300)
+
+
 class PolicyCreate(BaseModel):
     descripcion: str = Field(min_length=8, max_length=300)
     mostrar_codigo: bool = True
@@ -623,6 +637,11 @@ def certificate_projection(
           c.numero_institucional as code,
           concat(t.nombres, ' ', t.apellidos) as holder,
           t.id as holder_id,
+          t.nombres as holder_names,
+          t.apellidos as holder_surnames,
+          t.tipo_documento as holder_doc_type,
+          t.documento_normalizado as holder_doc_number,
+          c.tipo_id as type_id,
           concat(t.tipo_documento, ' ', t.documento_mascara) as masked_document,
           c.titulo as title,
           c.programa as program,
@@ -1727,6 +1746,172 @@ def revoke_certificate(certificate_id: str, payload: StateAction, _: None = Depe
         payload.actor,
         payload.reason,
     )
+
+
+@app.put("/api/v1/admin/certificates/{certificate_id}")
+def update_certificate(
+    certificate_id: str,
+    payload: CertificateUpdate,
+    _: None = Depends(require_admin),
+):
+    if payload.vence_en and payload.vence_en < payload.fecha_emision:
+        raise HTTPException(status_code=422, detail="expires_before_issue_date")
+
+    certificate = get_certificate_or_404(certificate_id)
+    old_code = certificate["numero_institucional"]
+    new_code = payload.numero_institucional.strip()
+    norm_doc = normalize_document(payload.documento)
+    doc_type = payload.tipo_documento.strip().upper()
+    masked = mask_document(payload.documento)
+    names = payload.nombres.strip()
+    surnames = payload.apellidos.strip()
+    title = payload.titulo.strip()
+    program = payload.programa.strip() if payload.programa else None
+    type_id = payload.type_id if payload.type_id else certificate["tipo_id"]
+
+    with db_cursor() as cur:
+        cur.execute(
+            """
+            select id from certificado
+            where institucion_id = %s and numero_institucional = %s and id <> %s
+            limit 1
+            """,
+            (certificate["institucion_id"], new_code, certificate_id),
+        )
+        if cur.fetchone():
+            raise HTTPException(status_code=409, detail="certificate_number_exists")
+
+        old_titular_id = certificate["titular_id"]
+        cur.execute(
+            "select count(*) as count from certificado where titular_id = %s",
+            (old_titular_id,),
+        )
+        count_for_holder = cur.fetchone()["count"]
+
+        cur.execute(
+            """
+            select id from titular
+            where institucion_id = %s and tipo_documento = %s and documento_normalizado = %s
+            limit 1
+            """,
+            (certificate["institucion_id"], doc_type, norm_doc),
+        )
+        existing_holder = cur.fetchone()
+
+        if existing_holder:
+            target_holder_id = existing_holder["id"]
+            cur.execute(
+                """
+                update titular
+                set nombres = %s, apellidos = %s, documento_mascara = %s
+                where id = %s
+                """,
+                (names, surnames, masked, target_holder_id),
+            )
+        elif count_for_holder <= 1:
+            target_holder_id = old_titular_id
+            cur.execute(
+                """
+                update titular
+                set tipo_documento = %s, documento_normalizado = %s, documento_mascara = %s,
+                    nombres = %s, apellidos = %s
+                where id = %s
+                """,
+                (doc_type, norm_doc, masked, names, surnames, target_holder_id),
+            )
+        else:
+            cur.execute(
+                """
+                insert into titular (
+                    institucion_id, tipo_documento, documento_normalizado,
+                    documento_mascara, nombres, apellidos
+                )
+                values (%s, %s, %s, %s, %s, %s)
+                returning id
+                """,
+                (certificate["institucion_id"], doc_type, norm_doc, masked, names, surnames),
+            )
+            target_holder_id = cur.fetchone()["id"]
+
+        cur.execute(
+            """
+            update certificado
+            set titular_id = %s,
+                tipo_id = %s,
+                numero_institucional = %s,
+                titulo = %s,
+                programa = %s,
+                fecha_emision = %s,
+                vence_en = %s,
+                updated_at = now()
+            where id = %s
+            """,
+            (
+                target_holder_id,
+                type_id,
+                new_code,
+                title,
+                program,
+                payload.fecha_emision,
+                payload.vence_en,
+                certificate_id,
+            ),
+        )
+
+        change_desc = f"{old_code} -> {new_code}" if old_code != new_code else new_code
+        if payload.reason:
+            change_desc += f": {payload.reason}"
+        audit_in_cursor(cur, "EDITAR_CERTIFICADO", change_desc)
+
+    return certificate_projection("where c.id = %s", (certificate_id,))[0]
+
+
+@app.delete("/api/v1/admin/certificates/{certificate_id}")
+def delete_certificate(
+    certificate_id: str,
+    _: None = Depends(require_admin),
+):
+    certificate = get_certificate_or_404(certificate_id)
+    code = certificate["numero_institucional"]
+    titular_id = certificate["titular_id"]
+
+    files_to_delete = []
+
+    with db_cursor() as cur:
+        cur.execute(
+            "select object_key from documento_version where certificado_id = %s",
+            (certificate_id,),
+        )
+        for row in cur.fetchall():
+            if row.get("object_key"):
+                files_to_delete.append(UPLOAD_DIR / row["object_key"])
+
+        cur.execute(
+            "select object_key from certificado_qr where certificado_id = %s",
+            (certificate_id,),
+        )
+        for row in cur.fetchall():
+            if row.get("object_key"):
+                files_to_delete.append(UPLOAD_DIR / row["object_key"])
+
+        cur.execute("delete from documento_version where certificado_id = %s", (certificate_id,))
+        cur.execute("delete from certificado_qr where certificado_id = %s", (certificate_id,))
+        cur.execute("update carga_masiva_detalle set certificado_id = null where certificado_id = %s", (certificate_id,))
+        cur.execute("delete from certificado where id = %s", (certificate_id,))
+
+        cur.execute("select count(*) as count from certificado where titular_id = %s", (titular_id,))
+        if cur.fetchone()["count"] == 0:
+            cur.execute("delete from titular where id = %s", (titular_id,))
+
+        audit_in_cursor(cur, "ELIMINAR_CERTIFICADO", code)
+
+    for file_path in files_to_delete:
+        try:
+            file_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    return {"ok": True, "deleted_id": certificate_id, "code": code}
 
 
 @app.get("/api/v1/admin/audit-events")
