@@ -966,8 +966,10 @@ function DashboardView({ refreshKey, onRefresh }) {
   const certificatesResource = useApiData("/admin/certificates", fallbackCertificates, refreshKey);
   const summaryResource = useApiData("/admin/summary", fallbackSummary, refreshKey);
   const catalogResource = useApiData("/admin/catalog", fallbackCatalog, refreshKey);
+  const healthResource = useApiData("/health", { status: "ok", database_connected: false }, refreshKey);
   const certificates = certificatesResource.data.map(normalizeCertificate);
   const summary = summaryResource.data;
+  const isDbConnected = healthResource.data?.database_connected ?? true;
 
   return (
     <div className="space-y-5">
@@ -976,9 +978,9 @@ function DashboardView({ refreshKey, onRefresh }) {
         title="Panel institucional"
         description="Resumen operativo para seguimiento de emision, revision, publicacion y control de riesgos."
       />
-      {(certificatesResource.usingFallback || summaryResource.usingFallback) && (
+      {(!isDbConnected || certificatesResource.usingFallback || summaryResource.usingFallback) && (
         <Notice tone="warning">
-          No se pudo conectar al servicio. Se muestran datos de respaldo mientras se restablece la conexion.
+          La base de datos PostgreSQL no está conectada. Se muestran datos de demostración mientras configuras la variable DATABASE_URL en Railway.
         </Notice>
       )}
       <WorkflowGuide />
@@ -1009,8 +1011,12 @@ function DashboardView({ refreshKey, onRefresh }) {
           <div className="panel p-4 sm:p-5">
             <h2 className="text-base font-semibold text-ink">Salud del servicio</h2>
             <div className="mt-5 space-y-4">
-              <HealthRow label="API publica" value="Activa" good />
-              <HealthRow label="PostgreSQL" value="Conectado" good />
+              <HealthRow label="API pública" value="Activa" good />
+              <HealthRow
+                label="PostgreSQL"
+                value={isDbConnected ? "Conectado" : "Desconectado (Revisar DATABASE_URL)"}
+                good={isDbConnected}
+              />
               <HealthRow label="Backups" value="Pendiente ops" good />
               <HealthRow label="Rate limit" value="Planeado" good />
             </div>
