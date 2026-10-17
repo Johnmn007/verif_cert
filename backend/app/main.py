@@ -14,6 +14,7 @@ from fastapi import Depends, File, Form, Header, HTTPException, UploadFile, stat
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
+from fastapi.staticfiles import StaticFiles
 from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
 
@@ -29,7 +30,7 @@ _cors_env = os.getenv("CORS_ORIGINS", "*")
 if _cors_env.strip() == "*":
     CORS_ORIGINS = ["*"]
 else:
-    CORS_ORIGINS = [origin.strip() for origin in _cors_env.split(",") if origin.strip()]
+    CORS_ORIGINS = [origin.strip().rstrip("/") for origin in _cors_env.split(",") if origin.strip()]
 
 app = FastAPI(
     title="SICV API",
@@ -50,11 +51,26 @@ app.add_middleware(
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok", "service": "sicv-backend"}
+    db_connected = False
+    db_detail = "connected"
+    try:
+        with db_cursor() as cur:
+            cur.execute("select 1;")
+            db_connected = True
+    except Exception as exc:
+        db_detail = f"disconnected ({exc})"
+
+    return {
+        "status": "ok",
+        "service": "sicv-backend",
+        "database": db_detail,
+        "database_connected": db_connected,
+    }
 
 
-@app.get("/")
-def root_check():
+@app.get("/api")
+@app.get("/api/v1")
+def api_root_check():
     return {"status": "ok", "message": "SICV API activa", "version": "0.1.0"}
 
 
@@ -115,10 +131,7 @@ class InstitutionSettingsUpdate(BaseModel):
     dominio_verificacion: str = Field(min_length=3, max_length=255)
 
 
-@app.on_event("startup")
-def ensure_runtime_schema() -> None:
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    QR_DIR.mkdir(parents=True, exist_ok=True)
+def _apply_db_migrations() -> None:
     with db_cursor() as cur:
         cur.execute("create extension if not exists pgcrypto;")
 
@@ -377,6 +390,17 @@ def db_cursor():
     with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
         with conn.cursor() as cur:
             yield cur
+
+
+@app.on_event("startup")
+def ensure_runtime_schema() -> None:
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    QR_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        _apply_db_migrations()
+    except Exception as exc:
+        print(f"[ALERTA DB] No se pudo inicializar la base de datos al arrancar: {exc}")
+        print("[ALERTA DB] Verifica la variable DATABASE_URL con los datos de PostgreSQL en Railway.")
 
 
 def require_admin(x_admin_token: str | None = Header(default=None)) -> None:
@@ -1915,4 +1939,30 @@ def reset_workspace(_: None = Depends(require_admin)):
         )
     clean_uploads()
     return {"status": "clean", "message": "workspace_reset_complete"}
+
+
+# -------------------------------------------------------------------------
+# Static Frontend Serving (Unified Container Support)
+# -------------------------------------------------------------------------
+_FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "dist"
+if not _FRONTEND_DIST.exists():
+    _FRONTEND_DIST = Path("/app/dist")
+
+if _FRONTEND_DIST.exists() and (_FRONTEND_DIST / "index.html").exists():
+    _assets_path = _FRONTEND_DIST / "assets"
+    if _assets_path.exists():
+        app.mount("/assets", StaticFiles(directory=str(_assets_path)), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str = ""):
+        if full_path.startswith(("api", "health", "docs", "openapi.json")):
+            raise HTTPException(status_code=404, detail="Not Found")
+        target_file = _FRONTEND_DIST / full_path
+        if full_path and target_file.is_file():
+            return FileResponse(target_file)
+        return FileResponse(_FRONTEND_DIST / "index.html")
+else:
+    @app.get("/")
+    def fallback_root():
+        return {"status": "ok", "message": "SICV API activa (Modo API)", "version": "0.1.0"}
 

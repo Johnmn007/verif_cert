@@ -233,6 +233,10 @@ async function apiRequest(path, options = {}) {
     }
     throw new Error(detail);
   }
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType && !contentType.includes("application/json") && !contentType.includes("problem+json")) {
+    throw new Error("El endpoint respondió con HTML en lugar de JSON. Verifica que la URL del backend apunte a la API FastAPI y no al frontend estático.");
+  }
   return response.json();
 }
 
@@ -2733,14 +2737,20 @@ function AdminAccessView({ onUnlock }) {
 
     try {
       const res = await fetch(healthUrl, { method: "GET" });
-      if (!res.ok && res.status !== 404) {
+      const contentType = res.headers.get("content-type") || "";
+      if (contentType.includes("text/html")) {
+        throw new Error("El endpoint devolvió HTML en vez de la API JSON de FastAPI. Esta URL apunta al frontend estático, no al backend.");
+      }
+      if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
+      const data = await res.json();
       localStorage.setItem(API_URL_STORAGE_KEY, normalizedApiUrl);
       setApiUrl(normalizedApiUrl);
       setCustomUrlInput(normalizedApiUrl);
       setTestStatus("ok");
-      setTestMessage(`¡Conexión exitosa con ${normalizedApiUrl}!`);
+      const dbInfo = data?.database ? ` (Base de datos: ${data.database})` : "";
+      setTestMessage(`¡Conexión exitosa con la API FastAPI!${dbInfo}`);
       setMessage("");
     } catch (err) {
       localStorage.setItem(API_URL_STORAGE_KEY, normalizedApiUrl);
