@@ -317,6 +317,7 @@ def _apply_db_migrations() -> None:
               where es_definitivo = true;
             """
         )
+        cur.execute("alter table documento_version add column if not exists file_data bytea;")
 
         cur.execute(
             """
@@ -1204,10 +1205,10 @@ def verify_certificate(token: str):
           c.vence_en as expires_on,
           i.razon_social as issuer,
           i.dominio_verificacion as issuer_domain,
-          case when pd.mostrar_nombre then concat(t.nombres, ' ', t.apellidos) else null end as holder,
-          case when pd.mostrar_documento then concat(t.tipo_documento, ' ', t.documento_mascara) else 'No publico' end as masked_document,
-          pd.descripcion as disclosure,
-          pd.permitir_documento_completo as document_public,
+          case when coalesce(pd.mostrar_nombre, true) then concat(t.nombres, ' ', t.apellidos) else null end as holder,
+          case when coalesce(pd.mostrar_documento, false) then concat(t.tipo_documento, ' ', t.documento_mascara) else 'No publico' end as masked_document,
+          coalesce(pd.descripcion, 'Politica de divulgacion activa') as disclosure,
+          coalesce(pd.permitir_documento_completo, false) as document_public,
           exists (
             select 1 from documento_version dv
             where dv.certificado_id = c.id and dv.es_definitivo = true
@@ -1216,12 +1217,12 @@ def verify_certificate(token: str):
         join institucion i on i.id = c.institucion_id
         join titular t on t.id = c.titular_id
         join tipo_certificado tc on tc.id = c.tipo_id
-        join politica_divulgacion pd on pd.institucion_id = c.institucion_id
+        left join politica_divulgacion pd on pd.institucion_id = c.institucion_id
           and (pd.tipo_id = c.tipo_id or pd.tipo_id is null)
           and pd.activa = true
-        where (c.token_publico = %s or c.numero_institucional = %s)
+        where (c.token_publico = %s or upper(c.numero_institucional) = upper(%s))
           and c.estado in ('PUBLICADO', 'REVOCADO', 'VENCIDO', 'REEMPLAZADO')
-        order by pd.tipo_id nulls last
+        order by pd.tipo_id nulls last, pd.version desc, pd.created_at desc
         limit 1
         """,
         (token, token),
@@ -1235,26 +1236,33 @@ def verify_certificate(token: str):
 def public_certificate_document(token: str):
     document = fetch_one(
         """
-        select dv.object_key, dv.mime
+        select dv.object_key, dv.mime, dv.file_data
         from certificado c
-        join politica_divulgacion pd on pd.institucion_id = c.institucion_id
+        left join politica_divulgacion pd on pd.institucion_id = c.institucion_id
           and (pd.tipo_id = c.tipo_id or pd.tipo_id is null)
           and pd.activa = true
         join documento_version dv on dv.certificado_id = c.id and dv.es_definitivo = true
-        where c.token_publico = %s
+        where (c.token_publico = %s or upper(c.numero_institucional) = upper(%s))
           and c.estado = 'PUBLICADO'
-          and pd.permitir_documento_completo = true
-        order by pd.tipo_id nulls last
+          and coalesce(pd.permitir_documento_completo, false) = true
+        order by pd.tipo_id nulls last, pd.version desc, pd.created_at desc
         limit 1
         """,
-        (token,),
+        (token, token),
     )
     if document is None:
         raise HTTPException(status_code=404, detail="document_not_available")
     path = UPLOAD_DIR / document["object_key"]
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="document_file_missing")
-    return FileResponse(path, media_type=document["mime"])
+    if path.exists():
+        return FileResponse(path, media_type=document["mime"])
+    if document.get("file_data"):
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(bytes(document["file_data"]))
+        except Exception:
+            pass
+        return Response(content=bytes(document["file_data"]), media_type=document["mime"])
+    raise HTTPException(status_code=404, detail="document_file_missing")
 
 
 @app.get("/api/v1/admin/certificates")
@@ -1542,6 +1550,7 @@ def upload_certificate_document(certificate_id: str, file: UploadFile = File(...
     destination = UPLOAD_DIR / object_key
     digest = hashlib.sha256()
     size = 0
+    file_bytes = bytearray()
 
     with destination.open("wb") as output:
         while chunk := file.file.read(1024 * 1024):
@@ -1552,6 +1561,7 @@ def upload_certificate_document(certificate_id: str, file: UploadFile = File(...
                 raise HTTPException(status_code=413, detail="document_too_large")
             digest.update(chunk)
             output.write(chunk)
+            file_bytes.extend(chunk)
 
     with db_cursor() as cur:
         cur.execute(
@@ -1570,12 +1580,12 @@ def upload_certificate_document(certificate_id: str, file: UploadFile = File(...
         cur.execute(
             """
             insert into documento_version (
-              certificado_id, version, object_key, sha256, mime, size_bytes, es_definitivo
+              certificado_id, version, object_key, sha256, mime, size_bytes, es_definitivo, file_data
             )
-            values (%s, %s, %s, %s, %s, %s, true)
+            values (%s, %s, %s, %s, %s, %s, true, %s)
             returning id, version, object_key, sha256, mime, size_bytes, es_definitivo
             """,
-            (certificate_id, version, object_key, digest.hexdigest(), file.content_type, size),
+            (certificate_id, version, object_key, digest.hexdigest(), file.content_type, size, bytes(file_bytes)),
         )
         document = cur.fetchone()
 
@@ -1588,7 +1598,7 @@ def admin_certificate_document(certificate_id: str, _: None = Depends(require_ad
     get_certificate_or_404(certificate_id)
     document = fetch_one(
         """
-        select object_key, mime
+        select object_key, mime, file_data
         from documento_version
         where certificado_id = %s and es_definitivo = true
         order by version desc
@@ -1599,9 +1609,16 @@ def admin_certificate_document(certificate_id: str, _: None = Depends(require_ad
     if document is None:
         raise HTTPException(status_code=404, detail="document_not_found")
     path = UPLOAD_DIR / document["object_key"]
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="document_file_missing")
-    return FileResponse(path, media_type=document["mime"])
+    if path.exists():
+        return FileResponse(path, media_type=document["mime"])
+    if document.get("file_data"):
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(bytes(document["file_data"]))
+        except Exception:
+            pass
+        return Response(content=bytes(document["file_data"]), media_type=document["mime"])
+    raise HTTPException(status_code=404, detail="document_file_missing")
 
 
 @app.get("/api/v1/admin/certificates/{certificate_id}/qr")
@@ -1936,7 +1953,7 @@ def disclosure_policy(_: None = Depends(require_admin)):
                mostrar_fechas, mostrar_programa, permitir_documento_completo
         from politica_divulgacion
         where activa = true
-        order by tipo_id nulls last
+        order by tipo_id nulls last, version desc, created_at desc
         limit 1
         """
     )
@@ -1951,7 +1968,7 @@ def create_disclosure_policy(payload: PolicyCreate, _: None = Depends(require_ad
         """
         select coalesce(max(version), 0) + 1 as next_version
         from politica_divulgacion
-        where institucion_id = %s and tipo_id is null
+        where institucion_id = %s
         """,
         (DEFAULT_INSTITUTION_ID,),
     )
@@ -1960,7 +1977,7 @@ def create_disclosure_policy(payload: PolicyCreate, _: None = Depends(require_ad
             """
             update politica_divulgacion
             set activa = false
-            where institucion_id = %s and tipo_id is null and activa = true
+            where institucion_id = %s and activa = true
             """,
             (DEFAULT_INSTITUTION_ID,),
         )

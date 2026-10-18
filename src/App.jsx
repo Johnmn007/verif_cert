@@ -14,10 +14,13 @@ import {
   ChevronsLeft,
   ChevronsRight,
   ClipboardCheck,
+  Copy,
+  Download,
   ExternalLink,
   Eye,
   FileCheck2,
   FileSearch,
+  FileText,
   Globe,
   History,
   Image,
@@ -866,7 +869,8 @@ function CertificateResult({ certificate }) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date());
-  const publicDocumentPath = `/public/certificates/${encodeURIComponent(certificate.token)}/document`;
+  const docToken = certificate.token || certificate.code;
+  const publicDocumentPath = docToken ? `/public/certificates/${encodeURIComponent(docToken)}/document` : "";
   const publicDocument = usePublicBlob(publicDocumentPath, Boolean(valid && certificate.hasDocument && certificate.documentPublic));
 
   return (
@@ -917,7 +921,7 @@ function CertificateResult({ certificate }) {
       <dl className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <Info label="Codigo institucional" value={certificate.code ?? certificate.token} />
         <Info label="Titular" value={valid ? certificate.holder : "Restringido por politica"} />
-        <Info label="Documento" value="No publico" />
+        <Info label="Documento" value={certificate.maskedDocument ?? "No publico"} />
         <Info label="Certificado" value={certificate.title} />
         <Info label="Programa" value={certificate.program} />
         <Info label="Emisor" value={certificate.issuer} />
@@ -932,10 +936,24 @@ function CertificateResult({ certificate }) {
       </div>
 
       {valid && certificate.hasDocument && certificate.documentPublic ? (
-        <div className="mt-6 overflow-hidden rounded-lg border border-slate-200 bg-white">
-          <div className="border-b border-slate-200 px-4 py-3">
-            <p className="text-sm font-semibold text-ink">Documento del certificado</p>
-            <p className="text-xs text-slate-500">Visible porque la politica de divulgacion activa lo permite.</p>
+        <div className="mt-6 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xs">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 px-4 py-3 bg-slate-50/70">
+            <div>
+              <p className="text-sm font-semibold text-ink">Documento oficial del certificado</p>
+              <p className="text-xs text-slate-500">Visible porque la politica de divulgacion activa lo permite.</p>
+            </div>
+            {publicDocument.blobUrl && (
+              <a
+                href={publicDocument.blobUrl}
+                download={`certificado-${certificate.code ?? certificate.token}.pdf`}
+                className="secondary-button text-xs py-1"
+                target="_blank"
+                rel="noreferrer"
+              >
+                <Download className="h-3.5 w-3.5 text-civic" />
+                Descargar original
+              </a>
+            )}
           </div>
           {publicDocument.blobUrl ? (
             <CertificateDocumentPreview
@@ -959,7 +977,7 @@ function CertificateResult({ certificate }) {
       ) : certificate.hasDocument ? (
         <div className="mt-6 flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600">
           <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0 text-civic" />
-          <span>El documento existe, pero la politica activa no permite mostrarlo publicamente.</span>
+          <span>El documento digital existe en el registro, pero la politica activa no permite mostrarlo publicamente.</span>
         </div>
       ) : null}
     </div>
@@ -2529,6 +2547,8 @@ function CertificateModal({ certificate, onClose, onRefresh, onEdit, onDelete })
   const [busy, setBusy] = useState(false);
   const [documentAvailable, setDocumentAvailable] = useState(Boolean(certificate.hasDocument));
   const [resourceRefresh, setResourceRefresh] = useState(0);
+  const [copiedUrl, setCopiedUrl] = useState(false);
+
   const documentPath = certificate.id ? `/admin/certificates/${certificate.id}/document` : "";
   const qrPath = certificate.id ? `/admin/certificates/${certificate.id}/qr` : "";
   const documentBlob = useProtectedBlob(documentPath, Boolean(certificate.id && documentAvailable), resourceRefresh);
@@ -2553,7 +2573,7 @@ function CertificateModal({ certificate, onClose, onRefresh, onEdit, onDelete })
       });
       setDocumentAvailable(true);
       setResourceRefresh((current) => current + 1);
-      setMessage("Documento cargado correctamente.");
+      setMessage("Documento cargado y resguardado en la base de datos.");
       onRefresh();
     } catch (error) {
       setMessage(`No se pudo cargar documento: ${error.message}`);
@@ -2562,75 +2582,228 @@ function CertificateModal({ certificate, onClose, onRefresh, onEdit, onDelete })
     }
   }
 
+  const verificationUrl =
+    certificate.qrUrl ||
+    (typeof window !== "undefined"
+      ? `${window.location.origin}/verificar/${encodeURIComponent(certificate.token || certificate.code)}`
+      : `/verificar/${encodeURIComponent(certificate.token || certificate.code)}`);
+
+  async function copyVerificationUrl() {
+    try {
+      await navigator.clipboard.writeText(verificationUrl);
+      setCopiedUrl(true);
+      setTimeout(() => setCopiedUrl(false), 2000);
+    } catch {
+      setMessage("No se pudo copiar el enlace.");
+    }
+  }
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/50 backdrop-blur-xs p-3 sm:p-4">
-      <section className="panel flex flex-col max-h-[94vh] w-full max-w-5xl overflow-hidden shadow-2xl">
-        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-200 p-4 sm:p-5">
-          <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-civic">Detalle interno</p>
-            <h2 className="mt-1 text-lg sm:text-xl font-semibold text-ink truncate">{certificate.title}</h2>
-            <p className="mt-0.5 text-xs sm:text-sm text-slate-500 font-mono">{certificate.code ?? certificate.token}</p>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/60 backdrop-blur-xs p-3 sm:p-4 md:p-6 overflow-y-auto">
+      <section className="panel flex flex-col my-auto max-h-[92vh] w-full max-w-5xl overflow-hidden shadow-2xl border border-slate-200">
+        {/* Cabecera Principal */}
+        <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50/70 p-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusBadge value={certificate.status} />
+              <span className="font-mono text-xs font-semibold text-slate-700 bg-white px-2 py-0.5 rounded border border-slate-200">
+                {certificate.code ?? certificate.token}
+              </span>
+              <span className="text-xs text-slate-500">
+                • {certificate.origin === "NUEVO" ? "Emisión digital" : "Digitalización histórica"}
+              </span>
+            </div>
+            <h2 className="mt-1.5 text-lg sm:text-xl font-bold text-ink truncate">
+              {certificate.title}
+            </h2>
+            <p className="text-xs text-slate-500">
+              Expediente digital oficial emitido por {certificate.issuer || "la institución"}.
+            </p>
           </div>
-          <button className="icon-button" onClick={onClose} aria-label="Cerrar detalle">
-            <X className="h-5 w-5" />
-          </button>
+
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              className="secondary-button text-xs py-1.5"
+              onClick={() => onEdit?.(certificate)}
+              title="Editar datos del certificado"
+            >
+              <Pencil className="h-3.5 w-3.5 text-civic" />
+              Editar
+            </button>
+            <button
+              type="button"
+              className="secondary-button text-xs py-1.5 text-danger hover:border-red-300 hover:bg-red-50"
+              onClick={() => onDelete?.(certificate)}
+              title="Eliminar este certificado"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Eliminar
+            </button>
+            <button
+              type="button"
+              className="icon-button h-8 w-8 ml-1"
+              onClick={onClose}
+              aria-label="Cerrar expediente"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:grid lg:grid-cols-[minmax(0,1fr)_360px] gap-6">
-          <div className="min-h-[240px] sm:min-h-[360px] rounded-lg border border-slate-200 bg-slate-50 overflow-hidden">
-            {documentAvailable ? (
-              documentBlob.blobUrl ? (
-                <CertificateDocumentPreview
-                  blobUrl={documentBlob.blobUrl}
-                  contentType={documentBlob.contentType}
-                  title="Documento del certificado"
-                  alt={`Documento de ${certificate.title}`}
-                />
-              ) : (
-                <div className="grid min-h-[360px] place-items-center p-6 text-center">
-                  <div>
-                    <Image className="mx-auto h-10 w-10 text-slate-400" />
-                    <p className="mt-3 font-semibold text-ink">Cargando documento protegido</p>
-                    <p className="mt-1 text-sm text-slate-500">
-                      {documentBlob.error || "Estamos preparando la vista previa del certificado."}
-                    </p>
-                  </div>
-                </div>
-              )
-            ) : (
-              <div className="grid min-h-[360px] place-items-center p-6 text-center">
+        {/* Ficha Resumen Horizontal Superior */}
+        <div className="grid grid-cols-2 gap-3 border-b border-slate-200 bg-white p-4 sm:grid-cols-4 sm:px-6 text-xs">
+          <div className="space-y-1">
+            <span className="font-semibold uppercase tracking-wider text-slate-400 text-[10px]">Titular</span>
+            <p className="font-semibold text-slate-800 text-sm truncate">{certificate.holder || "No registrado"}</p>
+            <p className="font-mono text-slate-500 text-[11px]">{certificate.maskedDocument ?? "DNI no público"}</p>
+          </div>
+          <div className="space-y-1">
+            <span className="font-semibold uppercase tracking-wider text-slate-400 text-[10px]">Programa / Especialidad</span>
+            <p className="font-semibold text-slate-800 text-sm truncate">{certificate.program || "General"}</p>
+            <p className="text-slate-500 text-[11px]">Especialidad académica</p>
+          </div>
+          <div className="space-y-1">
+            <span className="font-semibold uppercase tracking-wider text-slate-400 text-[10px]">Emisión y Vigencia</span>
+            <p className="font-semibold text-slate-800 text-sm">{certificate.issuedOn}</p>
+            <p className="text-slate-500 text-[11px]">Vence: {certificate.expiresOn ?? "Permanente"}</p>
+          </div>
+          <div className="space-y-1">
+            <span className="font-semibold uppercase tracking-wider text-slate-400 text-[10px]">Divulgación Pública</span>
+            <p className="font-semibold text-slate-800 text-sm truncate">
+              {certificate.documentPublic ? "Vista previa habilitada" : "Vista previa restringida"}
+            </p>
+            <p className="text-slate-500 text-[11px] truncate">
+              {certificate.disclosure || "Política institucional"}
+            </p>
+          </div>
+        </div>
+
+        {/* Cuerpo del Modal: 2 Columnas Balanceadas */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-50/30">
+          <div className="grid gap-6 lg:grid-cols-12">
+            {/* Columna Izquierda (7 cols): Documento Oficial con Visor */}
+            <div className="flex flex-col justify-between rounded-xl border border-slate-200 bg-white shadow-xs lg:col-span-7 overflow-hidden">
+              <div className="flex flex-col gap-2 border-b border-slate-200 bg-slate-50/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <Image className="mx-auto h-10 w-10 text-slate-400" />
-                  <p className="mt-3 font-semibold text-ink">Sin documento cargado</p>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Carga una imagen o PDF para que el expediente tenga evidencia documental.
+                  <h3 className="text-sm font-semibold text-ink flex items-center gap-1.5">
+                    <FileText className="h-4 w-4 text-civic" />
+                    Documento de respaldo
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    {documentAvailable ? "Evidencia digital vinculada al expediente." : "No se ha adjuntado archivo aún."}
                   </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="secondary-button text-xs py-1.5 cursor-pointer">
+                    <Upload className="h-3.5 w-3.5 text-civic" />
+                    {busy ? "Cargando..." : documentAvailable ? "Reemplazar documento" : "Subir documento"}
+                    <input
+                      className="sr-only"
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,application/pdf"
+                      onChange={uploadDocument}
+                    />
+                  </label>
+                  {documentAvailable && documentBlob.blobUrl && (
+                    <button
+                      type="button"
+                      className="secondary-button text-xs py-1.5"
+                      onClick={() =>
+                        downloadProtectedFile(
+                          documentPath,
+                          `documento-${certificate.code ?? certificate.token}.pdf`
+                        )
+                      }
+                      title="Descargar archivo original"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </div>
               </div>
-            )}
-          </div>
 
-          <aside className="space-y-4">
-            <div className="rounded-lg border border-slate-200 p-4">
-              <p className="text-sm font-semibold text-ink">QR de verificacion</p>
-              <p className="mt-1 text-xs text-slate-500">
-                Generado al registrar el certificado. Puede insertarse en el documento fisico o digital.
-              </p>
-              {certificate.id ? (
-                <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
-                  {qrBlob.blobUrl ? (
-                    <img className="mx-auto h-40 w-40" src={qrBlob.blobUrl} alt="QR de verificacion" />
-                  ) : (
-                    <div className="mx-auto grid h-40 w-40 place-items-center rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3 text-center text-xs text-slate-500">
-                      {qrBlob.error || "Cargando QR protegido"}
+              {/* Visor de Documento */}
+              <div className="p-3 flex-1 flex flex-col justify-center">
+                {documentAvailable ? (
+                  documentBlob.blobUrl ? (
+                    <div className="rounded-lg overflow-hidden border border-slate-200">
+                      <CertificateDocumentPreview
+                        blobUrl={documentBlob.blobUrl}
+                        contentType={documentBlob.contentType}
+                        title="Documento del certificado"
+                        alt={`Documento de ${certificate.title}`}
+                      />
                     </div>
-                  )}
-                  <p className="mt-3 break-all rounded-lg bg-slate-50 p-2 text-xs text-slate-600">
-                    {certificate.qrUrl ?? "URL de verificacion registrada en el QR"}
-                  </p>
+                  ) : (
+                    <div className="grid min-h-[360px] place-items-center p-6 text-center bg-slate-50 rounded-lg border border-dashed border-slate-200">
+                      <div>
+                        <Image className="mx-auto h-10 w-10 text-slate-400" />
+                        <p className="mt-3 text-sm font-semibold text-ink">
+                          {documentBlob.error ? "No se pudo cargar el archivo del documento" : "Cargando documento protegido..."}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500 max-w-sm">
+                          {documentBlob.error
+                            ? "Es posible que el archivo se haya limpiado del almacenamiento temporal tras un redespliegue. Puedes volver a cargarlo usando el botón 'Reemplazar documento'."
+                            : "Estamos obteniendo la evidencia digital del certificado."}
+                        </p>
+                      </div>
+                    </div>
+                  )
+                ) : (
+                  <div className="grid min-h-[360px] place-items-center p-6 text-center bg-slate-50 rounded-lg border border-dashed border-slate-300">
+                    <div className="max-w-sm">
+                      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-blue-50 text-civic">
+                        <Upload className="h-6 w-6" />
+                      </div>
+                      <p className="mt-3 text-sm font-semibold text-ink">Sin documento adjunto</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Carga un archivo PDF o imagen para que este certificado tenga respaldo documental verificable.
+                      </p>
+                      <label className="primary-button text-xs mt-4 inline-flex cursor-pointer">
+                        <Upload className="h-3.5 w-3.5" />
+                        Seleccionar archivo (PDF o Imagen)
+                        <input
+                          className="sr-only"
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp,application/pdf"
+                          onChange={uploadDocument}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Columna Derecha (5 cols): QR Oficial y Verificación */}
+            <div className="flex flex-col gap-4 lg:col-span-5">
+              {/* Tarjeta QR */}
+              <div className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5 shadow-xs">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div className="flex items-center gap-2">
+                    <QrCode className="h-4 w-4 text-civic" />
+                    <h3 className="text-sm font-semibold text-ink">Código QR de Verificación</h3>
+                  </div>
+                  <span className="text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                    Oficial
+                  </span>
+                </div>
+
+                <div className="mt-4 flex flex-col items-center">
+                  <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-xs">
+                    {qrBlob.blobUrl ? (
+                      <img className="h-36 w-36 sm:h-40 sm:w-40" src={qrBlob.blobUrl} alt="QR de verificacion" />
+                    ) : (
+                      <div className="grid h-36 w-36 sm:h-40 sm:w-40 place-items-center rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3 text-center text-xs text-slate-500">
+                        {qrBlob.error || "Generando QR..."}
+                      </div>
+                    )}
+                  </div>
+
                   <button
-                    className="secondary-button mt-3 w-full"
                     type="button"
+                    className="secondary-button text-xs py-1.5 mt-3 w-full"
                     onClick={async () => {
                       try {
                         await downloadProtectedFile(qrPath, `qr-${certificate.code ?? certificate.token}.svg`);
@@ -2639,53 +2812,94 @@ function CertificateModal({ certificate, onClose, onRefresh, onEdit, onDelete })
                       }
                     }}
                   >
-                    <QrCode className="h-4 w-4" />
-                    Descargar QR
+                    <Download className="h-3.5 w-3.5" />
+                    Descargar QR (SVG)
                   </button>
                 </div>
-              ) : (
-                <Notice tone="warning">El QR no esta disponible para datos de respaldo local.</Notice>
-              )}
+
+                {/* Enlace y Copia */}
+                <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+                  <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
+                    <span>Enlace público de verificación:</span>
+                    <button
+                      type="button"
+                      onClick={copyVerificationUrl}
+                      className="font-semibold text-civic hover:underline flex items-center gap-1"
+                    >
+                      {copiedUrl ? (
+                        <>
+                          <Check className="h-3 w-3 text-emerald-600" />
+                          <span className="text-emerald-600">¡Copiado!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="h-3 w-3" />
+                          <span>Copiar</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  <p className="font-mono text-xs text-slate-700 break-all select-all bg-white p-1.5 rounded border border-slate-200/80">
+                    {verificationUrl}
+                  </p>
+                  <a
+                    href={verificationUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-2 text-[11px] text-civic hover:underline font-medium inline-flex items-center gap-1"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    Probar enlace en portal público
+                  </a>
+                </div>
+              </div>
+
+              {/* Tarjeta de Seguridad y Auditoría */}
+              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs space-y-3">
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Políticas y Seguridad
+                </h4>
+                <div className="flex items-start gap-2.5 text-xs text-slate-600">
+                  <ShieldCheck className="h-4 w-4 shrink-0 text-civic mt-0.5" />
+                  <div>
+                    <strong className="text-ink">
+                      {certificate.documentPublic ? "Vista previa pública habilitada" : "Vista previa pública restringida"}
+                    </strong>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      {certificate.documentPublic
+                        ? "Cualquier persona que consulte el código podrá visualizar el documento."
+                        : "Solo usuarios autorizados pueden ver el documento digital."}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2.5 text-xs text-slate-600 border-t border-slate-100 pt-2.5">
+                  <KeyRound className="h-4 w-4 shrink-0 text-slate-400 mt-0.5" />
+                  <div className="min-w-0">
+                    <span className="text-slate-500 text-[11px]">Token criptográfico:</span>
+                    <p className="font-mono text-[11px] text-slate-700 truncate">{certificate.token}</p>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div className="rounded-lg border border-slate-200 p-4">
-              <StatusBadge value={certificate.status} />
-              <dl className="mt-4 space-y-3 text-sm">
-                <Info label="Titular" value={certificate.holder} />
-                <Info label="Documento" value={certificate.maskedDocument ?? "No publico"} />
-                <Info label="Emision" value={certificate.issuedOn} />
-                <Info label="Programa" value={certificate.program ?? "No indicado"} />
-              </dl>
-            </div>
-            <label className="secondary-button w-full cursor-pointer">
-              <Upload className="h-4 w-4" />
-              {busy ? "Cargando" : "Cargar/reemplazar documento"}
-              <input
-                className="sr-only"
-                type="file"
-                accept="image/png,image/jpeg,image/webp,application/pdf"
-                onChange={uploadDocument}
-              />
-            </label>
-            <div className="grid grid-cols-2 gap-2 pt-1">
-              <button
-                type="button"
-                className="secondary-button w-full text-slate-700 hover:border-civic hover:text-civic"
-                onClick={() => onEdit?.(certificate)}
-              >
-                <Pencil className="h-4 w-4" />
-                Editar
-              </button>
-              <button
-                type="button"
-                className="secondary-button w-full text-danger hover:border-red-300 hover:bg-red-50"
-                onClick={() => onDelete?.(certificate)}
-              >
-                <Trash2 className="h-4 w-4" />
-                Eliminar
-              </button>
-            </div>
-            {message && <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-700">{message}</p>}
-          </aside>
+          </div>
+        </div>
+
+        {/* Pie del Modal */}
+        <div className="flex flex-col gap-3 border-t border-slate-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div className="min-w-0 flex-1">
+            {message && (
+              <p className="rounded-lg bg-blue-50 border border-blue-200 px-3 py-1.5 text-xs font-medium text-slate-700">
+                {message}
+              </p>
+            )}
+          </div>
+          <button
+            type="button"
+            className="secondary-button text-xs py-2 shrink-0"
+            onClick={onClose}
+          >
+            Cerrar expediente
+          </button>
         </div>
       </section>
     </div>
