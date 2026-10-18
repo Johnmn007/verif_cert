@@ -221,8 +221,8 @@ function normalizeCertificate(certificate) {
     origin: certificate.origin,
     reviewer: certificate.reviewer,
     disclosure: certificate.disclosure,
-    hasDocument: certificate.has_document ?? certificate.hasDocument ?? false,
-    documentPublic: certificate.document_public ?? certificate.documentPublic ?? false,
+    hasDocument: Boolean(certificate.has_document ?? certificate.hasDocument),
+    documentPublic: Boolean(certificate.document_public ?? certificate.documentPublic),
     hasQr: certificate.has_qr ?? certificate.hasQr ?? false,
     qrUrl: certificate.qr_url ?? certificate.qrUrl,
   };
@@ -364,9 +364,16 @@ function usePublicBlob(path, enabled = true, refreshKey = 0) {
     let objectUrl = "";
 
     fetch(`${getApiBaseUrl()}${path}`)
-      .then((response) => {
+      .then(async (response) => {
         if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
+          let errorDetail = `HTTP ${response.status}`;
+          try {
+            const data = await response.json();
+            if (data?.detail) errorDetail = data.detail;
+          } catch {
+            // ignore
+          }
+          throw new Error(errorDetail);
         }
         setContentType(response.headers.get("Content-Type") ?? "");
         return response.blob();
@@ -377,11 +384,17 @@ function usePublicBlob(path, enabled = true, refreshKey = 0) {
         setBlobUrl(objectUrl);
         setError("");
       })
-      .catch(() => {
+      .catch((err) => {
         if (!active) return;
         setBlobUrl("");
         setContentType("");
-        setError("No se pudo cargar el documento.");
+        if (err.message === "document_not_available") {
+          setError("El documento digital está restringido por la política institucional de privacidad.");
+        } else if (err.message === "document_file_missing") {
+          setError("El archivo original no se encontró en el almacenamiento del servidor. Se requiere recarga en el expediente institucional.");
+        } else {
+          setError("No se pudo cargar la vista previa del documento.");
+        }
       });
 
     return () => {
@@ -400,7 +413,7 @@ function CertificateDocumentPreview({ blobUrl, contentType, title, alt }) {
     return (
       <div className="grid min-h-[360px] place-items-center bg-slate-50 p-3 sm:min-h-[420px]">
         <img
-          className="block max-h-[70vh] max-w-full rounded-lg object-contain"
+          className="block max-h-[70vh] max-w-full rounded-lg object-contain shadow-xs"
           src={blobUrl}
           alt={alt}
         />
@@ -409,20 +422,28 @@ function CertificateDocumentPreview({ blobUrl, contentType, title, alt }) {
   }
 
   return (
-    <object
-      className="h-[70vh] min-h-[420px] w-full rounded-lg bg-slate-50"
-      data={blobUrl}
-      type={contentType || "application/pdf"}
-      title={title}
-    >
-      <div className="grid min-h-[360px] place-items-center p-6 text-center">
-        <div>
-          <Image className="mx-auto h-10 w-10 text-slate-400" />
-          <p className="mt-3 font-semibold text-ink">No se pudo mostrar la vista previa</p>
-          <p className="mt-1 text-sm text-slate-500">Descarga el archivo para revisarlo.</p>
-        </div>
-      </div>
-    </object>
+    <div className="relative w-full rounded-lg bg-slate-100 overflow-hidden">
+      <object
+        className="h-[70vh] min-h-[420px] w-full rounded-lg bg-slate-50"
+        data={blobUrl}
+        type="application/pdf"
+        title={title}
+      >
+        <iframe
+          src={blobUrl}
+          className="h-[70vh] min-h-[420px] w-full rounded-lg bg-white border-0"
+          title={title}
+        >
+          <div className="grid min-h-[360px] place-items-center p-6 text-center">
+            <div>
+              <Image className="mx-auto h-10 w-10 text-slate-400" />
+              <p className="mt-3 font-semibold text-ink">Vista previa no soportada por el navegador</p>
+              <p className="mt-1 text-sm text-slate-500">Utiliza el botón de descarga para revisar el documento original.</p>
+            </div>
+          </div>
+        </iframe>
+      </object>
+    </div>
   );
 }
 
@@ -697,10 +718,20 @@ function PublicShell({ children }) {
 }
 
 function VerifyView() {
-  const pathToken = window.location.pathname.startsWith("/v/")
-    ? decodeURIComponent(window.location.pathname.replace("/v/", ""))
-    : "";
-  const initialToken = pathToken;
+  const getInitialToken = () => {
+    if (typeof window === "undefined") return "";
+    const path = window.location.pathname;
+    if (path.startsWith("/v/")) {
+      return decodeURIComponent(path.replace("/v/", "").replace(/\/+$/, "")).trim();
+    }
+    if (path.startsWith("/verificar/")) {
+      return decodeURIComponent(path.replace("/verificar/", "").replace(/\/+$/, "")).trim();
+    }
+    const params = new URLSearchParams(window.location.search);
+    return (params.get("token") || params.get("code") || "").trim();
+  };
+
+  const initialToken = getInitialToken();
   const [query, setQuery] = useState(initialToken);
   const [submitted, setSubmitted] = useState(initialToken);
   const [result, setResult] = useState(null);
@@ -869,9 +900,10 @@ function CertificateResult({ certificate }) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date());
-  const docToken = certificate.token || certificate.code;
+  const docToken = (certificate.token || certificate.code || "").trim();
   const publicDocumentPath = docToken ? `/public/certificates/${encodeURIComponent(docToken)}/document` : "";
-  const publicDocument = usePublicBlob(publicDocumentPath, Boolean(valid && certificate.hasDocument && certificate.documentPublic));
+  const canShowDocument = Boolean(valid && certificate.hasDocument && certificate.documentPublic);
+  const publicDocument = usePublicBlob(publicDocumentPath, canShowDocument);
 
   return (
     <div className="p-4 sm:p-6">
@@ -935,7 +967,7 @@ function CertificateResult({ certificate }) {
         <p className="mt-1 text-sm text-slate-600">{certificate.disclosure}</p>
       </div>
 
-      {valid && certificate.hasDocument && certificate.documentPublic ? (
+      {canShowDocument ? (
         <div className="mt-6 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xs">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 px-4 py-3 bg-slate-50/70">
             <div>
@@ -965,8 +997,14 @@ function CertificateResult({ certificate }) {
           ) : (
             <div className="grid min-h-[360px] place-items-center bg-slate-50 p-6 text-center">
               <div>
-                <Image className="mx-auto h-10 w-10 text-slate-400" />
-                <p className="mt-3 font-semibold text-ink">Cargando documento</p>
+                {publicDocument.error ? (
+                  <AlertTriangle className="mx-auto h-10 w-10 text-amber-500" />
+                ) : (
+                  <Image className="mx-auto h-10 w-10 text-slate-400 animate-pulse" />
+                )}
+                <p className="mt-3 font-semibold text-ink">
+                  {publicDocument.error ? "No se pudo cargar la vista previa" : "Cargando documento"}
+                </p>
                 <p className="mt-1 text-sm text-slate-500">
                   {publicDocument.error || "Estamos preparando la vista previa del certificado."}
                 </p>
@@ -974,12 +1012,20 @@ function CertificateResult({ certificate }) {
             </div>
           )}
         </div>
-      ) : certificate.hasDocument ? (
+      ) : !certificate.hasDocument ? (
+        <div className="mt-6 flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+          <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+          <div>
+            <span className="font-semibold text-slate-700">Sin archivo digital adjunto: </span>
+            <span>Este certificado se encuentra publicado en el registro oficial, pero aún no tiene una copia digital (PDF/imagen) cargada en su expediente institucional.</span>
+          </div>
+        </div>
+      ) : (
         <div className="mt-6 flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600">
           <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0 text-civic" />
           <span>El documento digital existe en el registro, pero la politica activa no permite mostrarlo publicamente.</span>
         </div>
-      ) : null}
+      )}
     </div>
   );
 }
@@ -2585,8 +2631,8 @@ function CertificateModal({ certificate, onClose, onRefresh, onEdit, onDelete })
   const verificationUrl =
     certificate.qrUrl ||
     (typeof window !== "undefined"
-      ? `${window.location.origin}/verificar/${encodeURIComponent(certificate.token || certificate.code)}`
-      : `/verificar/${encodeURIComponent(certificate.token || certificate.code)}`);
+      ? `${window.location.origin}/v/${encodeURIComponent(certificate.token || certificate.code)}`
+      : `/v/${encodeURIComponent(certificate.token || certificate.code)}`);
 
   async function copyVerificationUrl() {
     try {

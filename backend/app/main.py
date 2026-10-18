@@ -318,6 +318,20 @@ def _apply_db_migrations() -> None:
             """
         )
         cur.execute("alter table documento_version add column if not exists file_data bytea;")
+        cur.execute(
+            """
+            -- Asegurar que solo la politica mas reciente quede como activa
+            update politica_divulgacion
+            set activa = false
+            where activa = true
+              and id not in (
+                select id from politica_divulgacion
+                where activa = true
+                order by version desc, created_at desc
+                limit 1
+              );
+            """
+        )
 
         cur.execute(
             """
@@ -653,9 +667,10 @@ def certificate_projection(
           c.origen as origin,
           c.revisor as reviewer,
           coalesce(pd.descripcion, 'Politica institucional vigente') as disclosure,
+          coalesce(pd.permitir_documento_completo, false) as document_public,
           exists (
             select 1 from documento_version dv
-            where dv.certificado_id = c.id and dv.es_definitivo = true
+            where dv.certificado_id = c.id
           ) as has_document,
           (cq.certificado_id is not null) as has_qr,
           cq.verification_url as qr_url,
@@ -664,9 +679,12 @@ def certificate_projection(
         join institucion i on i.id = c.institucion_id
         join titular t on t.id = c.titular_id
         join tipo_certificado tc on tc.id = c.tipo_id
-        left join politica_divulgacion pd on pd.institucion_id = c.institucion_id
-          and (pd.tipo_id = c.tipo_id or pd.tipo_id is null)
-          and pd.activa = true
+        left join lateral (
+          select * from politica_divulgacion
+          where activa = true
+          order by version desc, created_at desc
+          limit 1
+        ) pd on true
         left join certificado_qr cq on cq.certificado_id = c.id
         {where_clause}
         order by c.created_at desc
@@ -1191,6 +1209,7 @@ def public_status():
 
 @app.get("/api/v1/public/certificates/{token}")
 def verify_certificate(token: str):
+    clean_token = token.strip()
     certificate = fetch_one(
         """
         select
@@ -1211,21 +1230,23 @@ def verify_certificate(token: str):
           coalesce(pd.permitir_documento_completo, false) as document_public,
           exists (
             select 1 from documento_version dv
-            where dv.certificado_id = c.id and dv.es_definitivo = true
+            where dv.certificado_id = c.id
           ) as has_document
         from certificado c
         join institucion i on i.id = c.institucion_id
         join titular t on t.id = c.titular_id
         join tipo_certificado tc on tc.id = c.tipo_id
-        left join politica_divulgacion pd on pd.institucion_id = c.institucion_id
-          and (pd.tipo_id = c.tipo_id or pd.tipo_id is null)
-          and pd.activa = true
+        left join lateral (
+          select * from politica_divulgacion
+          where activa = true
+          order by version desc, created_at desc
+          limit 1
+        ) pd on true
         where (c.token_publico = %s or upper(c.numero_institucional) = upper(%s))
           and c.estado in ('PUBLICADO', 'REVOCADO', 'VENCIDO', 'REEMPLAZADO')
-        order by pd.tipo_id nulls last, pd.version desc, pd.created_at desc
         limit 1
         """,
-        (token, token),
+        (clean_token, clean_token),
     )
     if certificate is None:
         raise HTTPException(status_code=404, detail="certificate_not_found")
@@ -1234,21 +1255,25 @@ def verify_certificate(token: str):
 
 @app.get("/api/v1/public/certificates/{token}/document")
 def public_certificate_document(token: str):
+    clean_token = token.strip()
     document = fetch_one(
         """
         select dv.object_key, dv.mime, dv.file_data
         from certificado c
-        left join politica_divulgacion pd on pd.institucion_id = c.institucion_id
-          and (pd.tipo_id = c.tipo_id or pd.tipo_id is null)
-          and pd.activa = true
-        join documento_version dv on dv.certificado_id = c.id and dv.es_definitivo = true
+        left join lateral (
+          select * from politica_divulgacion
+          where activa = true
+          order by version desc, created_at desc
+          limit 1
+        ) pd on true
+        join documento_version dv on dv.certificado_id = c.id
         where (c.token_publico = %s or upper(c.numero_institucional) = upper(%s))
           and c.estado = 'PUBLICADO'
           and coalesce(pd.permitir_documento_completo, false) = true
-        order by pd.tipo_id nulls last, pd.version desc, pd.created_at desc
+        order by dv.es_definitivo desc, dv.version desc
         limit 1
         """,
-        (token, token),
+        (clean_token, clean_token),
     )
     if document is None:
         raise HTTPException(status_code=404, detail="document_not_available")
@@ -1953,7 +1978,7 @@ def disclosure_policy(_: None = Depends(require_admin)):
                mostrar_fechas, mostrar_programa, permitir_documento_completo
         from politica_divulgacion
         where activa = true
-        order by tipo_id nulls last, version desc, created_at desc
+        order by version desc, created_at desc
         limit 1
         """
     )
@@ -1968,19 +1993,10 @@ def create_disclosure_policy(payload: PolicyCreate, _: None = Depends(require_ad
         """
         select coalesce(max(version), 0) + 1 as next_version
         from politica_divulgacion
-        where institucion_id = %s
-        """,
-        (DEFAULT_INSTITUTION_ID,),
+        """
     )
     with db_cursor() as cur:
-        cur.execute(
-            """
-            update politica_divulgacion
-            set activa = false
-            where institucion_id = %s and activa = true
-            """,
-            (DEFAULT_INSTITUTION_ID,),
-        )
+        cur.execute("update politica_divulgacion set activa = false where activa = true;")
         cur.execute(
             """
             insert into politica_divulgacion (
