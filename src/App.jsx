@@ -2438,12 +2438,12 @@ function ResponsiveTable({ certificates, onRefresh, catalog }) {
         <table className="w-full text-left text-sm table-fixed">
           <thead className="bg-slate-50 text-xs uppercase text-slate-500 border-b border-slate-200">
             <tr>
-              <th className="w-[140px] px-3.5 py-3 font-semibold">Código</th>
-              <th className="w-[170px] px-3.5 py-3 font-semibold">Titular</th>
+              <th className="w-[135px] px-3.5 py-3 font-semibold">Código</th>
+              <th className="w-[160px] px-3.5 py-3 font-semibold">Titular</th>
               <th className="px-3.5 py-3 font-semibold">Certificado</th>
-              <th className="w-[110px] px-3 py-3 font-semibold">Estado</th>
-              <th className="w-[90px] px-3 py-3 font-semibold">Fecha</th>
-              <th className="w-[165px] px-3 py-3 font-semibold text-right">Acciones</th>
+              <th className="w-[105px] px-3 py-3 font-semibold">Estado</th>
+              <th className="w-[85px] px-3 py-3 font-semibold">Fecha</th>
+              <th className="w-[185px] px-3 py-3 font-semibold text-right">Acciones</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200 bg-white">
@@ -2468,41 +2468,41 @@ function ResponsiveTable({ certificates, onRefresh, catalog }) {
                   <td className="px-3 py-2.5 text-xs text-slate-500 whitespace-nowrap">
                     {certificate.issuedOn}
                   </td>
-                  <td className="px-2.5 py-2.5 text-right whitespace-nowrap">
-                    <div className="inline-flex items-center gap-1 justify-end">
+                  <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                    <div className="inline-flex items-center gap-1.5 justify-end">
                       <button
                         type="button"
-                        className="flex h-7.5 w-7.5 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-2xs hover:border-civic hover:bg-blue-50 hover:text-civic transition"
+                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-2xs hover:border-civic hover:bg-blue-50 hover:text-civic transition"
                         title="Ver expediente completo"
                         onClick={() => setSelectedCertificate(certificate)}
                       >
-                        <Eye className="h-3.5 w-3.5" />
+                        <Eye className="h-4 w-4" />
                       </button>
                       <button
                         type="button"
-                        className="flex h-7.5 w-7.5 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-2xs hover:border-civic hover:bg-blue-50 hover:text-civic transition"
+                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-2xs hover:border-civic hover:bg-blue-50 hover:text-civic transition"
                         title="Editar datos del certificado"
                         onClick={() => setEditingCertificate(certificate)}
                       >
-                        <Pencil className="h-3.5 w-3.5" />
+                        <Pencil className="h-4 w-4" />
                       </button>
                       {certificate.status === "PUBLICADO" && (
                         <button
                           type="button"
-                          className="flex h-7.5 w-7.5 items-center justify-center rounded-lg border border-amber-200 bg-amber-50/70 text-amber-700 shadow-2xs hover:bg-amber-100 transition"
+                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-amber-200 bg-amber-50/70 text-amber-700 shadow-2xs hover:bg-amber-100 transition"
                           title="Revocar certificado"
                           onClick={() => setRevocationTarget(certificate)}
                         >
-                          <AlertTriangle className="h-3.5 w-3.5" />
+                          <AlertTriangle className="h-4 w-4" />
                         </button>
                       )}
                       <button
                         type="button"
-                        className="flex h-7.5 w-7.5 items-center justify-center rounded-lg border border-red-200 bg-red-50/70 text-danger shadow-2xs hover:bg-red-100 transition"
+                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-red-200 bg-red-50/70 text-danger shadow-2xs hover:bg-red-100 transition"
                         title="Eliminar certificado"
                         onClick={() => setDeletingCertificate(certificate)}
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        <Trash2 className="h-4 w-4" />
                       </button>
                     </div>
                   </td>
