@@ -43,7 +43,7 @@ import {
   UserRoundCheck,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const API_URL_STORAGE_KEY = "sicv_custom_api_url";
 
@@ -406,6 +406,184 @@ function usePublicBlob(path, enabled = true, refreshKey = 0) {
   return { blobUrl, contentType, error };
 }
 
+function PdfCanvasViewer({ blobUrl, title, alt }) {
+  const canvasRef = useRef(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [page, setPage] = useState(1);
+  const [numPages, setNumPages] = useState(1);
+  const renderTaskRef = useRef(null);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError(false);
+
+    const renderPdfPage = async () => {
+      try {
+        let pdfjs = window.pdfjsLib;
+        if (!pdfjs) {
+          await new Promise((resolve, reject) => {
+            if (document.querySelector('script[data-pdfjs]')) {
+              const checkInterval = setInterval(() => {
+                if (window.pdfjsLib) {
+                  clearInterval(checkInterval);
+                  resolve();
+                }
+              }, 50);
+              setTimeout(() => {
+                clearInterval(checkInterval);
+                if (window.pdfjsLib) resolve();
+                else reject(new Error("Timeout loading PDF.js"));
+              }, 6000);
+              return;
+            }
+            const script = document.createElement("script");
+            script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+            script.async = true;
+            script.setAttribute("data-pdfjs", "true");
+            script.onload = () => resolve();
+            script.onerror = () => reject(new Error("Failed to load PDF library"));
+            document.head.appendChild(script);
+          });
+          pdfjs = window.pdfjsLib;
+          if (pdfjs) {
+            pdfjs.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+          }
+        }
+
+        if (!active || !pdfjs) return;
+
+        const loadingTask = pdfjs.getDocument(blobUrl);
+        const pdf = await loadingTask.promise;
+        if (!active) return;
+        setNumPages(pdf.numPages);
+
+        const pdfPage = await pdf.getPage(page);
+        if (!active) return;
+
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const containerWidth = canvas.parentElement?.clientWidth || 700;
+        const unscaledViewport = pdfPage.getViewport({ scale: 1 });
+        const targetScale = Math.min(2.0, Math.max(1.0, containerWidth / unscaledViewport.width));
+        const viewport = pdfPage.getViewport({ scale: targetScale });
+
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        const ctx = canvas.getContext("2d");
+
+        if (renderTaskRef.current) {
+          try {
+            renderTaskRef.current.cancel();
+          } catch {
+            // ignore
+          }
+        }
+
+        const renderContext = {
+          canvasContext: ctx,
+          viewport: viewport,
+        };
+
+        const renderTask = pdfPage.render(renderContext);
+        renderTaskRef.current = renderTask;
+        await renderTask.promise;
+        if (active) setLoading(false);
+      } catch (err) {
+        if (err?.name === "RenderingCancelledException") return;
+        if (active) {
+          console.warn("PDF render fallback:", err);
+          setError(true);
+          setLoading(false);
+        }
+      }
+    };
+
+    renderPdfPage();
+
+    return () => {
+      active = false;
+      if (renderTaskRef.current) {
+        try {
+          renderTaskRef.current.cancel();
+        } catch {
+          // ignore
+        }
+      }
+    };
+  }, [blobUrl, page]);
+
+  if (error) {
+    return (
+      <div className="grid min-h-[360px] place-items-center bg-slate-50 p-6 text-center">
+        <div>
+          <FileText className="mx-auto h-12 w-12 text-civic" />
+          <p className="mt-3 font-semibold text-ink">Certificado digital (PDF)</p>
+          <p className="mt-1 text-sm text-slate-500 max-w-sm mx-auto">
+            El archivo está disponible y validado en el sistema. Puedes abrirlo directamente o descargarlo.
+          </p>
+          <div className="mt-4 flex flex-wrap justify-center gap-2">
+            <a
+              href={blobUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="primary-button text-xs py-1.5"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              Abrir documento PDF
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative flex flex-col items-center justify-center bg-slate-50 p-3 sm:p-5 rounded-lg min-h-[380px]">
+      {loading && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-slate-50/90 backdrop-blur-xs rounded-lg p-4">
+          <RefreshCw className="h-6 w-6 text-civic animate-spin" />
+          <p className="mt-2 text-xs font-medium text-slate-600">Generando vista del documento...</p>
+        </div>
+      )}
+      <div className="max-w-full overflow-hidden rounded-lg shadow-sm border border-slate-200/90 bg-white">
+        <canvas
+          ref={canvasRef}
+          className="block max-h-[72vh] w-auto max-w-full object-contain"
+          title={title}
+          aria-label={alt || title}
+        />
+      </div>
+
+      {numPages > 1 && (
+        <div className="mt-3 flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium shadow-xs">
+          <button
+            type="button"
+            disabled={page <= 1}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            className="text-slate-600 hover:text-ink disabled:opacity-40 cursor-pointer"
+          >
+            ← Anterior
+          </button>
+          <span className="text-slate-500 font-mono text-[11px]">
+            {page} / {numPages}
+          </span>
+          <button
+            type="button"
+            disabled={page >= numPages}
+            onClick={() => setPage((p) => Math.min(numPages, p + 1))}
+            className="text-slate-600 hover:text-ink disabled:opacity-40 cursor-pointer"
+          >
+            Siguiente →
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CertificateDocumentPreview({ blobUrl, contentType, title, alt }) {
   const isImage = contentType.toLowerCase().startsWith("image/");
 
@@ -421,30 +599,7 @@ function CertificateDocumentPreview({ blobUrl, contentType, title, alt }) {
     );
   }
 
-  return (
-    <div className="relative w-full rounded-lg bg-slate-100 overflow-hidden">
-      <object
-        className="h-[70vh] min-h-[420px] w-full rounded-lg bg-slate-50"
-        data={blobUrl}
-        type="application/pdf"
-        title={title}
-      >
-        <iframe
-          src={blobUrl}
-          className="h-[70vh] min-h-[420px] w-full rounded-lg bg-white border-0"
-          title={title}
-        >
-          <div className="grid min-h-[360px] place-items-center p-6 text-center">
-            <div>
-              <Image className="mx-auto h-10 w-10 text-slate-400" />
-              <p className="mt-3 font-semibold text-ink">Vista previa no soportada por el navegador</p>
-              <p className="mt-1 text-sm text-slate-500">Utiliza el botón de descarga para revisar el documento original.</p>
-            </div>
-          </div>
-        </iframe>
-      </object>
-    </div>
-  );
+  return <PdfCanvasViewer blobUrl={blobUrl} title={title} alt={alt} />;
 }
 
 async function downloadProtectedFile(path, filename) {
