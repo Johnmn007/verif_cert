@@ -1297,24 +1297,43 @@ def admin_certificates(limit: int = 500, _: None = Depends(require_admin)):
 
 @app.get("/api/v1/admin/catalog")
 def catalog(_: None = Depends(require_admin)):
+    holders = fetch_all(
+        """
+        select id, concat(nombres, ' ', apellidos) as name,
+               concat(tipo_documento, ' ', documento_mascara) as document,
+               documento_normalizado as raw_document
+        from titular
+        order by created_at desc, nombres asc
+        """
+    )
+    types = fetch_all(
+        """
+        select id, codigo as code, nombre as name, requiere_vigencia as requires_expiration
+        from tipo_certificado
+        where activo = true
+        order by nombre asc
+        """
+    )
+    titles = []
+    try:
+        titles = fetch_all(
+            """
+            select distinct on (trim(titulo))
+                   trim(titulo) as title,
+                   coalesce(programa, '') as program,
+                   tipo_id as type_id
+            from certificado
+            where titulo is not null and trim(titulo) != ''
+            order by trim(titulo), created_at desc
+            """
+        )
+    except Exception:
+        titles = []
+
     return {
-        "holders": fetch_all(
-            """
-            select id, concat(nombres, ' ', apellidos) as name,
-                   concat(tipo_documento, ' ', documento_mascara) as document,
-                   documento_normalizado as raw_document
-            from titular
-            order by created_at desc, nombres asc
-            """
-        ),
-        "types": fetch_all(
-            """
-            select id, codigo as code, nombre as name, requiere_vigencia as requires_expiration
-            from tipo_certificado
-            where activo = true
-            order by nombre asc
-            """
-        ),
+        "holders": holders,
+        "types": types,
+        "titles": titles,
     }
 
 

@@ -195,6 +195,13 @@ const fallbackSummary = {
 const fallbackCatalog = {
   holders: [],
   types: [],
+  titles: [
+    { title: "Diplomado en Gestión Pública y Transformación Digital", program: "Programa de Especialización Continua 2026" },
+    { title: "Certificado de Capacitación", program: "Gestión Administrativa" },
+    { title: "Certificado Técnico de Especialización", program: "Soporte Informático" },
+    { title: "Constancia de Participación", program: "Educación Continua" },
+    { title: "Constancia Histórica de Estudios", program: "Formación Profesional" },
+  ],
 };
 
 const fallbackBulkHistory = [];
@@ -1320,6 +1327,7 @@ function DashboardView({ refreshKey, onRefresh }) {
       {showCreateForm ? (
         <QuickCreateSection
           catalog={catalogResource.data}
+          certificates={certificates}
           onSaved={onRefresh}
           onClose={() => setShowCreateForm(false)}
         />
@@ -1380,6 +1388,17 @@ function DashboardView({ refreshKey, onRefresh }) {
 function HolderSearchSelector({ holders, selectedHolderId, onSelect }) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (containerRef.current && !containerRef.current.contains(event.target)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const selectedHolder = holders.find((h) => h.id === selectedHolderId);
 
@@ -1395,7 +1414,7 @@ function HolderSearchSelector({ holders, selectedHolderId, onSelect }) {
   }, [holders, query]);
 
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-1.5" ref={containerRef}>
       <div className="flex items-center justify-between">
         <label className="text-xs font-semibold uppercase text-slate-500">
           Titular *
@@ -1511,8 +1530,164 @@ function HolderSearchSelector({ holders, selectedHolderId, onSelect }) {
   );
 }
 
-function QuickCreateSection({ catalog, onSaved, onClose }) {
+function CertificateTitleSearchSelector({ titles, selectedTitle, onSelect, onClear }) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (containerRef.current && !containerRef.current.contains(event.target)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const filteredTitles = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return titles;
+    return titles.filter((item) => {
+      const title = (item.title ?? "").toLowerCase();
+      const program = (item.program ?? "").toLowerCase();
+      return title.includes(q) || program.includes(q);
+    });
+  }, [titles, query]);
+
+  const hasExactMatch = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return false;
+    return titles.some((item) => (item.title ?? "").trim().toLowerCase() === q);
+  }, [titles, query]);
+
+  return (
+    <div className="space-y-1.5" ref={containerRef}>
+      {selectedTitle ? (
+        <div className="flex items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50/70 px-3 py-2 text-xs">
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold text-ink truncate">{selectedTitle}</p>
+            <p className="font-mono text-slate-500 text-[11px]">Título registrado seleccionado</p>
+          </div>
+          <button
+            type="button"
+            className="rounded p-1 text-slate-400 hover:text-slate-600 hover:bg-white transition"
+            onClick={() => {
+              onClear();
+              setQuery("");
+              setOpen(true);
+            }}
+            title="Deseleccionar título"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      ) : (
+        <div className="relative">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+            <input
+              type="text"
+              className="field pl-9 pr-8 text-xs bg-white"
+              placeholder="Buscar título registrado (ej. Diplomado, Curso, Certificado)..."
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setOpen(true);
+              }}
+              onFocus={() => setOpen(true)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && query.trim()) {
+                  e.preventDefault();
+                  onSelect({ title: query.trim() });
+                  setOpen(false);
+                  setQuery("");
+                }
+              }}
+            />
+            {query && (
+              <button
+                type="button"
+                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600"
+                onClick={() => setQuery("")}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+
+          {open && (
+            <div className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+              <div className="flex items-center justify-between border-b border-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-400">
+                <span>{filteredTitles.length} títulos encontrados</span>
+                <button
+                  type="button"
+                  className="text-slate-400 hover:text-slate-600"
+                  onClick={() => setOpen(false)}
+                >
+                  Cerrar
+                </button>
+              </div>
+
+              {filteredTitles.length > 0 ? (
+                filteredTitles.slice(0, 100).map((item, idx) => (
+                  <button
+                    key={`${item.title}-${idx}`}
+                    type="button"
+                    className="flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-xs hover:bg-slate-50 transition"
+                    onClick={() => {
+                      onSelect(item);
+                      setOpen(false);
+                      setQuery("");
+                    }}
+                  >
+                    <span className="font-semibold text-ink truncate">{item.title}</span>
+                    {item.program && (
+                      <span className="rounded bg-slate-100 px-1.5 py-0.5 font-medium text-[11px] text-slate-600 shrink-0 max-w-[160px] truncate">
+                        {item.program}
+                      </span>
+                    )}
+                  </button>
+                ))
+              ) : (
+                <p className="p-3 text-center text-xs text-slate-500">
+                  No hay títulos registrados que coincidan con &quot;{query}&quot;.
+                </p>
+              )}
+
+              {query.trim() && !hasExactMatch && (
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 border-t border-slate-100 px-2.5 py-2 text-left text-xs font-semibold text-civic hover:bg-blue-50/60 transition"
+                  onClick={() => {
+                    onSelect({ title: query.trim() });
+                    setOpen(false);
+                    setQuery("");
+                  }}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>Usar &quot;{query.trim()}&quot; como nuevo título</span>
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+      <input
+        type="text"
+        tabIndex={-1}
+        className="sr-only"
+        required
+        value={selectedTitle}
+        onChange={() => {}}
+      />
+    </div>
+  );
+}
+
+function QuickCreateSection({ catalog, certificates = [], onSaved, onClose }) {
   const [holderMode, setHolderMode] = useState("search"); // "search" | "create"
+  const [titleMode, setTitleMode] = useState("search"); // "search" | "manual"
   const [holderForm, setHolderForm] = useState({
     tipo_documento: "DNI",
     documento: "",
@@ -1531,6 +1706,7 @@ function QuickCreateSection({ catalog, onSaved, onClose }) {
   });
   const [certificateFile, setCertificateFile] = useState(null);
   const [recentlyCreatedHolders, setRecentlyCreatedHolders] = useState([]);
+  const [recentlyUsedTitles, setRecentlyUsedTitles] = useState([]);
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState("info");
   const [busy, setBusy] = useState(false);
@@ -1541,6 +1717,50 @@ function QuickCreateSection({ catalog, onSaved, onClose }) {
     (catalog?.holders ?? []).forEach((h) => map.set(h.id, h));
     return Array.from(map.values());
   }, [catalog?.holders, recentlyCreatedHolders]);
+
+  const allTitles = useMemo(() => {
+    const map = new Map();
+
+    const addTitle = (rawTitle, program = "", typeId = "") => {
+      const trimmed = (rawTitle || "").trim();
+      if (!trimmed) return;
+      const key = trimmed.toLowerCase();
+      if (!map.has(key)) {
+        map.set(key, {
+          title: trimmed,
+          program: (program || "").trim(),
+          typeId: typeId || "",
+        });
+      }
+    };
+
+    // 1. Recientemente usados en la sesión
+    recentlyUsedTitles.forEach((t) => addTitle(t.title, t.program, t.typeId));
+
+    // 2. De certificados existentes en el sistema
+    (certificates ?? []).forEach((c) => addTitle(c.title, c.program, c.typeId));
+
+    // 3. Del catálogo
+    (catalog?.titles ?? []).forEach((item) => {
+      if (typeof item === "string") {
+        addTitle(item);
+      } else if (item && item.title) {
+        addTitle(item.title, item.program, item.type_id || item.typeId);
+      }
+    });
+
+    // 4. Ejemplos institucionales predeterminados
+    const defaults = [
+      { title: "Diplomado en Gestión Pública y Transformación Digital", program: "Programa de Especialización Continua 2026" },
+      { title: "Certificado de Capacitación", program: "Gestión Administrativa" },
+      { title: "Certificado Técnico de Especialización", program: "Soporte Informático" },
+      { title: "Constancia de Participación", program: "Educación Continua" },
+      { title: "Constancia Histórica de Estudios", program: "Formación Profesional" },
+    ];
+    defaults.forEach((d) => addTitle(d.title, d.program));
+
+    return Array.from(map.values());
+  }, [catalog?.titles, certificates, recentlyUsedTitles]);
 
   const types = catalog?.types ?? [];
 
@@ -1608,6 +1828,21 @@ function QuickCreateSection({ catalog, onSaved, onClose }) {
           body: formData,
         });
       }
+      const savedTitle = certificateForm.titulo.trim();
+      const savedProgram = certificateForm.programa.trim();
+      const savedTypeId = certificateForm.type_id;
+
+      if (savedTitle) {
+        setRecentlyUsedTitles((prev) => [
+          {
+            title: savedTitle,
+            program: savedProgram,
+            typeId: savedTypeId,
+          },
+          ...prev,
+        ]);
+      }
+
       setCertificateForm((current) => ({
         ...current,
         numero_institucional: `SICV-2026-${String(Math.floor(Math.random() * 900000) + 100000)}`,
@@ -1851,17 +2086,75 @@ function QuickCreateSection({ catalog, onSaved, onClose }) {
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold uppercase text-slate-500" htmlFor="quick-cert-title">
-                    Título del certificado *
-                  </label>
-                  <input
-                    id="quick-cert-title"
-                    className="field mt-1 text-xs"
-                    value={certificateForm.titulo}
-                    onChange={(e) => setCertificateForm({ ...certificateForm, titulo: e.target.value })}
-                    placeholder="Ej. Diplomado en Gestión Pública y Transformación Digital"
-                    required
-                  />
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold uppercase text-slate-500" htmlFor="quick-cert-title">
+                      Título del certificado *
+                    </label>
+                    <div className="flex items-center gap-2">
+                      {certificateForm.titulo && titleMode === "search" && (
+                        <button
+                          type="button"
+                          className="text-[11px] font-semibold text-civic hover:underline"
+                          onClick={() => {
+                            setCertificateForm((current) => ({ ...current, titulo: "" }));
+                          }}
+                        >
+                          Cambiar
+                        </button>
+                      )}
+                      <div className="inline-flex rounded-lg bg-slate-200/80 p-0.5 text-xs font-medium text-slate-600">
+                        <button
+                          type="button"
+                          className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 transition ${
+                            titleMode === "search" ? "bg-white font-semibold text-ink shadow-sm" : "hover:text-slate-900"
+                          }`}
+                          onClick={() => setTitleMode("search")}
+                        >
+                          <Search className="h-3.5 w-3.5" />
+                          Buscar
+                        </button>
+                        <button
+                          type="button"
+                          className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 transition ${
+                            titleMode === "manual" ? "bg-white font-semibold text-ink shadow-sm" : "hover:text-slate-900"
+                          }`}
+                          onClick={() => setTitleMode("manual")}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                          Nuevo
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-1.5">
+                    {titleMode === "search" ? (
+                      <CertificateTitleSearchSelector
+                        titles={allTitles}
+                        selectedTitle={certificateForm.titulo}
+                        onSelect={(item) => {
+                          setCertificateForm((current) => ({
+                            ...current,
+                            titulo: item.title,
+                            programa: current.programa || item.program || "",
+                            type_id: current.type_id || item.typeId || current.type_id,
+                          }));
+                        }}
+                        onClear={() => {
+                          setCertificateForm((current) => ({ ...current, titulo: "" }));
+                        }}
+                      />
+                    ) : (
+                      <input
+                        id="quick-cert-title"
+                        className="field text-xs bg-white"
+                        value={certificateForm.titulo}
+                        onChange={(e) => setCertificateForm({ ...certificateForm, titulo: e.target.value })}
+                        placeholder="Ej. Diplomado en Gestión Pública y Transformación Digital"
+                        required
+                      />
+                    )}
+                  </div>
                 </div>
 
                 <div>
